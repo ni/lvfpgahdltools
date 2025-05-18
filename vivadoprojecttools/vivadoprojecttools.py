@@ -81,7 +81,17 @@ def get_vivado_project_files(config):
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith('#'):  # Skip empty lines and comments
-                        file_list.append(fix_file_slashes(line))
+                        if os.path.isdir(line):
+                            print(f"Directory found: {line}")
+                            # This is a directory, add all relevant files recursively
+                            for root, _, files in os.walk(line):
+                                for file in files:
+                                    # Filter for relevant file types
+                                    if file.endswith(('.vhd', '.v', '.sv', '.xdc', '.edf', '.dcp', '.xci')):
+                                        file_path = os.path.join(root, file)
+                                        file_list.append(fix_file_slashes(file_path))   
+                        else:
+                            file_list.append(fix_file_slashes(line))
         else:
             raise FileNotFoundError(f"File list path '{file_list_path}' does not exist.")
         
