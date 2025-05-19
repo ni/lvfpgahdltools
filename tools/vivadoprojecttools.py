@@ -276,6 +276,7 @@ def extract_deps_from_zip(deps_folder):
 #
 # This will be replaced once we have the workflow for migrating CLIP
 # and generating the LV FPGA project files.
+#
 #######################################################################
 def render_mako_template(template_path):
     """Render a Mako template and write the output to objects directory
