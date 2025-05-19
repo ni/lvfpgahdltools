@@ -28,6 +28,7 @@ from collections import defaultdict
 from mako.template import Template
 import zipfile
 from enum import Enum
+import genlvtargetsupport
 
 def list_all_files(folder_path):
     """
@@ -271,46 +272,6 @@ def extract_deps_from_zip(deps_folder):
     extracted_files = os.listdir(deps_folder)
     print(f"Extracted {len(extracted_files)} items to {deps_folder}")
 
-#####################################################################
-# TEMPORARY FUNCTION TO GET THE WINDOW MAKO TEMPLATE RENDERED
-#
-# This will be replaced once we have the workflow for migrating CLIP
-# and generating the LV FPGA project files.
-#
-#######################################################################
-def render_mako_template(template_path):
-    """Render a Mako template and write the output to objects directory
-    
-    Args:
-        template_path: Path to template file
-        
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    template_dir = os.path.dirname(template_path)
-    template_file = os.path.basename(template_path)
-    output_dir = os.path.join(os.getcwd(), "objects/rtl-lvfpga/lvgen")
-    output_file = template_file.replace('.mako', '')
-    output_path = os.path.join(output_dir, output_file) 
-
-    print(f"Template directory: {template_dir}")
-    print(f"Template file: {template_file}")
-    print(f"Output directory: {output_dir}")
-    print(f"Output file: {output_file}")
-    print(f"Output path: {output_path}")
-    
-    if os.path.exists(template_path):
-        os.makedirs(output_dir, exist_ok=True)
-        with open(template_path, 'r') as f:
-            template = Template(f.read())
-        output_text = template.render(
-            include_clip_socket=True,
-            include_custom_io=False,
-            custom_signals=[]
-        )
-        with open(output_path, 'w') as f:
-            f.write(output_text)
-
 class ProjectMode(Enum):
     NEW = "new"
     UPDATE = "update"
@@ -335,8 +296,9 @@ def create_project(mode: ProjectMode, config):
     replace_placeholders_in_file(new_proj_template_path, new_proj_path, add_files, project_name, top_entity)
     replace_placeholders_in_file(update_proj_template_path, update_proj_path, add_files, project_name, top_entity)    
 
-    # TEMPORARY: Render the Mako template for TheWindow.vhd
-    render_mako_template(os.path.join(current_dir, 'rtl-lvfpga/lvgen/TheWindow.vhd.mako'))
+    # Run (or rerun) generate LV target support - this is needed to generate TheWindow.vhd that goes
+    # into the objects directory and which gets used in the Vivado project
+    genlvtargetsupport.gen_lv_target_support();
 
     vivado_project_path = os.path.join(os.getcwd(), "VivadoProject")
     if not os.path.exists(vivado_project_path):

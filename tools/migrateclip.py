@@ -1,39 +1,23 @@
-# MIT License
-# 
-# Copyright (c) 2025 National Instruments Corporation
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy of this
-# software and associated documentation files (the "Software"), to deal in the Software
-# without restriction, including without limitation the rights to use, copy, modify, merge,
-# publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
-# to whom the Software is furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in all copies or
-# substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
-# PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
-# FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-# OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-# DEALINGS IN THE SOFTWARE.
-#
-
 import xml.etree.ElementTree as ET
 import os
 import sys
 import csv
 from dataclasses import dataclass
 import configparser
-import re
 import traceback
-
+import common
 
 @dataclass
 class FileConfiguration:
-    """Class to store file paths from the INI file."""
-    input_xml: str
-    output_csv: str
+    """Class to store file paths and configuration for CLIP migration."""
+    input_path: str
+    output_path: str
+    clip_hdl_path: str
+    instantiation_path: str
+    clip_xdc_paths: list
+    clip_instance_path: str
+    updated_xdc_folder: str
+    clip_to_window_signal_definitions: str  # New field for signal definitions
 
 
 def load_config(config_path=None):
@@ -44,7 +28,7 @@ def load_config(config_path=None):
         config_path: Path to the INI file. If None, searches in the current directory.
         
     Returns:
-        Tuple with input paths and output paths
+        FileConfiguration: Object containing all configuration settings
     """
     if config_path is None:
         config_path = os.path.join(os.getcwd(), "vivadoprojectsettings.ini")
@@ -62,33 +46,61 @@ def load_config(config_path=None):
         input_xml = settings['CLIPXML']
         output_csv = settings['CustomSignalsCSV']
         clip_hdl_top = settings['CLIPHDLTop']
-        clip_xdc = settings['CLIPXDC']
+        clip_xdc = settings['CLIPXDCIn']
         clip_instantiation = settings['CLIPInstantiationExample']
         clip_instance_path = settings['CLIPInstancePath']
-        updated_xdc = settings['UpdatedCLIPXDC']
+        updated_xdc = settings['CLIPXDCOutFolder']
+        
+        # Try to get the new setting, use a default if not found
+        clip_to_window = settings.get('CLIPtoWindowSignalDefinitions', 'CLIPMigration/Outputs/ClipToWindow.vhd')
         
     except KeyError as e:
         sys.exit(f"Error: Missing {e} in configuration file.")
         traceback.print_exc()
     
-    # Resolve relative paths
-    base_dir = os.path.dirname(config_path)
-    input_path = os.path.join(base_dir, input_xml)
-    output_path = os.path.join(base_dir, output_csv)
-    clip_hdl_path = os.path.join(base_dir, clip_hdl_top)
-    instantiation_path = os.path.join(base_dir, clip_instantiation)
-    clip_xdc_path = os.path.join(base_dir, clip_xdc)
-    updated_xdc_path = os.path.join(base_dir, updated_xdc) 
+    # Resolve relative paths - use absolute paths to handle the "../.." properly
+    base_dir = os.path.dirname(os.path.abspath(config_path))
     
-    return (input_path, output_path, clip_hdl_path, instantiation_path, 
-            clip_xdc_path, clip_instance_path, updated_xdc_path)
+    # Process paths that might be deep relative paths (../../)
+    def resolve_path(rel_path):
+        abs_path = os.path.normpath(os.path.join(base_dir, rel_path))
+        return abs_path
+    
+    input_path = resolve_path(input_xml)
+    output_path = resolve_path(output_csv)
+    clip_hdl_path = resolve_path(clip_hdl_top)
+    instantiation_path = resolve_path(clip_instantiation)
+    clip_to_window_path = resolve_path(clip_to_window)
+    
+    # Handle multiple XDC files - split by lines and strip whitespace
+    clip_xdc_paths = []
+    for xdc_file in clip_xdc.strip().split('\n'):
+        xdc_file = xdc_file.strip()
+        if xdc_file:
+            abs_xdc_path = resolve_path(xdc_file)
+            clip_xdc_paths.append(abs_xdc_path)
+    
+    updated_xdc_folder = resolve_path(updated_xdc)
+    
+    # Return a FileConfiguration object instead of a tuple
+    return FileConfiguration(
+        input_path=input_path,
+        output_path=output_path,
+        clip_hdl_path=clip_hdl_path,
+        instantiation_path=instantiation_path,
+        clip_xdc_paths=clip_xdc_paths,
+        clip_instance_path=clip_instance_path,
+        updated_xdc_folder=updated_xdc_folder,
+        clip_to_window_signal_definitions=clip_to_window_path
+    )
 
 
 def find_case_insensitive(element, xpath):
     """Find an element using case-insensitive tag and attribute matching"""
+    # Keep original implementation...
     if element is None:
         return None
-        
+    
     # Handle simple tag name search
     if not xpath.startswith('.//') and not xpath.startswith('@'):
         for child in element:
@@ -125,6 +137,7 @@ def find_case_insensitive(element, xpath):
 
 def findall_case_insensitive(element, xpath):
     """Find all elements using case-insensitive tag and attribute matching"""
+    # Keep original implementation...
     if element is None:
         return []
         
@@ -210,14 +223,6 @@ def extract_data_type(element):
     return "Unknown"
 
 
-def ensure_directory(path):
-    """Create directory if it doesn't exist"""
-    directory = os.path.dirname(path)
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory, exist_ok=True)
-        print(f"Created directory: {directory}")
-
-
 def process_clip_xml(input_path, output_path):
     """Process CLIP XML and generate CSV"""
     try:
@@ -226,7 +231,7 @@ def process_clip_xml(input_path, output_path):
             sys.exit(f"Error: Input file not found: {input_path}")
             
         # Ensure output directory exists
-        ensure_directory(output_path)
+        common.ensure_directory(output_path)
         
         # Parse XML
         try:
@@ -280,191 +285,227 @@ def process_clip_xml(input_path, output_path):
                     lv_name, hdl_name, direction, signal_type,
                     data_type, use_in_scl, clock_domain
                 ])
-        
-        return True
+        print(f"Processed XML file: {input_path}")
     
     except Exception as e:
         print(f"Error processing XML: {str(e)}")
         traceback.print_exc()
-        return False
 
 
-def parse_vhdl_entity(vhdl_path):
-    """
-    Parse VHDL file to extract entity information - port names only
-    
-    Args:
-        vhdl_path: Path to VHDL file
-        
-    Returns:
-        Tuple with entity name and list of port names
-    """
-    if not os.path.exists(vhdl_path):
-        print(f"Error: VHDL file not found: {vhdl_path}")
-        return None, []
-    
+def process_constraint_file(input_path, output_folder, instance_path):
+    """Process XDC constraint file and replace %ClipInstancePath% with the instance path"""
     try:
-        # Read the entire file as a single string
-        with open(vhdl_path, 'r') as f:
-            content = f.read()
-            
-        # Step 1: Find the entity declaration
-        entity_pattern = re.compile(r'entity\s+(\w+)\s+is', re.IGNORECASE)
-        entity_match = entity_pattern.search(content)
-        if not entity_match:
-            print(f"Error: Could not find entity declaration in {vhdl_path}")
-            return None, []
-            
-        entity_name = entity_match.group(1)
+        long_input_path = common.handle_long_path(input_path)
+        long_output_folder = common.handle_long_path(output_folder)
         
-        # Step 2: Find the entire port section
-        # First, find the start position of "port ("
-        port_start_pattern = re.compile(r'port\s*\(', re.IGNORECASE)
-        port_start_match = port_start_pattern.search(content, entity_match.end())
-        if not port_start_match:
-            print(f"Error: Could not find port declaration in {vhdl_path}")
-            return entity_name, []
-        
-        port_start = port_start_match.end()
-        
-        # Now find the matching closing parenthesis by counting open/close parentheses
-        paren_level = 1
-        port_end = port_start
-        for i in range(port_start, len(content)):
-            if content[i] == '(':
-                paren_level += 1
-            elif content[i] == ')':
-                paren_level -= 1
-                if paren_level == 0:
-                    port_end = i
-                    break
-        
-        if paren_level != 0:
-            print(f"Error: Could not find end of port declaration")
-            return entity_name, []
-        
-        # Extract port section
-        port_section = content[port_start:port_end]
-        
-        # Clean up port section - remove comments
-        port_section = re.sub(r'--.*?$', '', port_section, flags=re.MULTILINE)
-        
-        # Split by semicolons to get individual port declarations
-        ports = []
-        port_declarations = port_section.split(';')
-        
-        # Process each port declaration
-        for decl in port_declarations:
-            decl = decl.strip()
-            if not decl or ':' not in decl:
-                continue
-                
-            # Extract port names from before the colon
-            names_part = decl.split(':', 1)[0].strip()
-            
-            # Handle multiple comma-separated port names
-            for name in names_part.split(','):
-                name = name.strip()
-                if name:
-                    ports.append(name)
-        
-        return entity_name, ports
-        
-    except Exception as e:
-        print(f"Error parsing VHDL file: {str(e)}")
-        traceback.print_exc()
-        return None, []
-
-
-def generate_entity_instantiation(vhdl_path, output_path):
-    """Generate VHDL entity instantiation from VHDL file"""
-    entity_name, ports = parse_vhdl_entity(vhdl_path)
-        
-    # Create output directory if needed
-    ensure_directory(output_path)
-    
-    # Generate entity instantiation
-    with open(output_path, 'w') as f:
-        f.write(f"-- Entity instantiation for {entity_name}\n")
-        f.write(f"-- Generated from {os.path.basename(vhdl_path)}\n\n")
-        
-        f.write(f"{entity_name}: {entity_name}\n")
-        f.write("port map (\n")
-        
-        # Create port mappings
-        port_mappings = [f"    {port} => {port}" for port in ports]
-        
-        if port_mappings:
-            f.write(",\n".join(port_mappings))
-            
-        f.write("\n);\n")
-        
-    return True
-
-
-def process_constraint_file(input_path, output_path, instance_path):
-    """
-    Process XDC constraint file and replace %ClipInstancePath% with the instance path
-    
-    Args:
-        input_path: Path to input XDC file
-        output_path: Path to output XDC file
-        instance_path: Instance path to use for replacement
-        
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    try:
-        if not os.path.exists(input_path):
+        if not os.path.exists(long_input_path):
             print(f"Error: XDC file not found: {input_path}")
-            return False
         
         # Create output directory if needed
-        ensure_directory(output_path)
+        os.makedirs(long_output_folder, exist_ok=True)
+        
+        # Extract the original filename
+        file_name = os.path.basename(input_path)
+        output_path = os.path.join(output_folder, file_name)
+        long_output_path = common.handle_long_path(output_path)
         
         # Read the input file
-        with open(input_path, 'r') as infile:
+        with open(long_input_path, 'r') as infile:
             content = infile.read()
             
         # Replace all instances of %ClipInstancePath%
         updated_content = content.replace('%ClipInstancePath%', instance_path)
 
         # Write the updated content to the output file
-        with open(output_path, 'w') as outfile:
+        with open(long_output_path, 'w') as outfile:
             outfile.write(updated_content)
             
-        return True
+        print(f"Processed XDC file: {file_name}")
         
     except Exception as e:
-        print(f"Error processing XDC file: {str(e)}")
+        print(f"Error processing XDC file {os.path.basename(input_path)}: {str(e)}")
+        traceback.print_exc()
+
+
+def generate_clip_to_window_signals(input_xml_path, output_vhdl_path):
+    """
+    Generate VHDL signal declarations for CLIP signals to connect to Window component.
+    
+    Args:
+        input_xml_path: Path to the CLIP XML file
+        output_vhdl_path: Path where to write the VHDL signal declarations
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Ensure input file exists
+        if not os.path.exists(input_xml_path):
+            print(f"Error: Input XML file not found: {input_xml_path}")
+            return False
+            
+        # Ensure output directory exists
+        common.ensure_directory(output_vhdl_path)
+        
+        # Parse XML
+        try:
+            tree = ET.parse(input_xml_path)
+            root = tree.getroot()
+        except ET.ParseError as e:
+            print(f"Error parsing XML file: {e}")
+            return False
+        
+        # Find LabVIEW interface
+        lv_interface = find_case_insensitive(root, ".//Interface[@Name='LabVIEW']")
+        if lv_interface is None:
+            print(f"No LabVIEW interface found in {input_xml_path}")
+            return False
+        
+        # Find signals
+        signals = findall_case_insensitive(lv_interface, ".//SignalList/Signal")
+        if not signals:
+            print("Warning: No signals found in the LabVIEW interface")
+            return False
+            
+        # Open output file for writing VHDL signal declarations
+        with open(output_vhdl_path, 'w') as f:
+            f.write("-- VHDL Signal declarations for CLIP to Window connections\n")
+            f.write("-- Generated from " + os.path.basename(input_xml_path) + "\n\n")
+            
+            # Process each signal
+            for signal in signals:
+                # Get signal name
+                name = get_attribute_case_insensitive(signal, "Name")
+                if not name:
+                    continue
+                    
+                # Get HDL name and direction
+                hdl_name = get_element_text(signal, "HDLName", name)
+                raw_direction = get_element_text(signal, "Direction", "N/A")
+                direction = {"ToCLIP": "output", "FromCLIP": "input"}.get(raw_direction, raw_direction)
+                
+                # Get data type and convert to VHDL type
+                data_type_elem = signal.find("DataType") or find_case_insensitive(signal, "DataType")
+                lv_data_type = extract_data_type(data_type_elem)
+                vhdl_type = map_lv_type_to_vhdl(lv_data_type)
+                
+                # Generate signal declaration
+                signal_comment = f"-- {name} ({direction})"
+                signal_decl = f"signal {hdl_name} : {vhdl_type};"
+                f.write(f"{signal_decl} {signal_comment}\n")
+            
+            print(f"Generated VHDL signal declarations: {output_vhdl_path}")
+            return True
+            
+    except Exception as e:
+        print(f"Error generating CLIP to Window signals: {e}")
         traceback.print_exc()
         return False
+
+
+def map_lv_type_to_vhdl(lv_type):
+    """
+    Map LabVIEW data type to VHDL data type
+    
+    Args:
+        lv_type: LabVIEW data type from XML
+        
+    Returns:
+        str: Corresponding VHDL data type
+    """
+    # Handle simple types
+    if lv_type == "Boolean":
+        return "std_logic"
+    elif lv_type == "U8":
+        return "std_logic_vector(7 downto 0)"
+    elif lv_type == "U16":
+        return "std_logic_vector(15 downto 0)"
+    elif lv_type == "U32":
+        return "std_logic_vector(31 downto 0)"
+    elif lv_type == "U64":
+        return "std_logic_vector(63 downto 0)"
+    elif lv_type == "I8":
+        return "std_logic_vector(7 downto 0)"
+    elif lv_type == "I16":
+        return "std_logic_vector(15 downto 0)"
+    elif lv_type == "I32":
+        return "std_logic_vector(31 downto 0)"
+    elif lv_type == "I64":
+        return "std_logic_vector(63 downto 0)"
+    
+    # Handle FXP - extract word length
+    elif lv_type.startswith("FXP"):
+        try:
+            # Format is typically FXP(word_length,int_word_length,signed/unsigned)
+            parts = lv_type.strip("FXP(").strip(")").split(",")
+            word_length = int(parts[0])
+            return f"std_logic_vector({word_length-1} downto 0)"
+        except:
+            return "std_logic_vector(31 downto 0)"  # Default if parsing fails
+    
+    # Handle Array
+    elif lv_type.startswith("Array"):
+        try:
+            # Format is typically Array<ElementType>[Size]
+            element_type = lv_type.split("<")[1].split(">")[0]
+            size = lv_type.split("[")[1].split("]")[0]
+            
+            # Map the element type to VHDL
+            element_vhdl = map_lv_type_to_vhdl(element_type)
+            
+            # If element_vhdl contains "std_logic_vector", we need special handling
+            if "std_logic_vector" in element_vhdl:
+                # Extract the range
+                range_match = re.search(r'\((\d+) downto (\d+)\)', element_vhdl)
+                if range_match:
+                    high = int(range_match.group(1))
+                    low = int(range_match.group(2))
+                    bit_width = high - low + 1
+                    return f"std_logic_vector({bit_width * int(size) - 1} downto 0)"
+            
+            # Default array representation
+            return f"std_logic_vector({int(size) * 32 - 1} downto 0)"
+        except:
+            return "std_logic_vector(31 downto 0)"  # Default if parsing fails
+    
+    # Default type for unknown types
+    return "std_logic_vector(31 downto 0)"
 
 
 def main():
     """Main program entry point"""
     try:
         # Load configuration
-        (input_path, output_path, clip_hdl_path, instantiation_path,
-         clip_xdc_path, clip_instance_path, updated_xdc_path) = load_config()
+        config = load_config()
         
         # Process XML
-        success = process_clip_xml(input_path, output_path)
+        process_clip_xml(
+            config.input_path, 
+            config.output_path
+        )
         
         # Generate entity instantiation
-        entity_success = generate_entity_instantiation(clip_hdl_path, instantiation_path)
-        success = success and entity_success
+        common.generate_entity_instantiation(
+            config.clip_hdl_path, 
+            config.instantiation_path
+        )
         
-        # Process constraint file
-        xdc_success = process_constraint_file(clip_xdc_path, updated_xdc_path, clip_instance_path)
-        success = success and xdc_success
-        
-        if success:
-            print("CLIP migration completed successfully.")
-            return 0
-        else:
-            print("CLIP migration failed.")
-            return 1
+        # Process all constraint files
+        for xdc_path in config.clip_xdc_paths:
+            process_constraint_file(
+                xdc_path, 
+                config.updated_xdc_folder, 
+                config.clip_instance_path
+            )
+            
+        # Generate CLIP to Window signal definitions
+        generate_clip_to_window_signals(
+            config.input_path,
+            config.clip_to_window_signal_definitions
+        )
+            
+        print("CLIP migration completed successfully.")
+        return 0
     
     except Exception as e:
         print(f"Unexpected error: {str(e)}")

@@ -1,24 +1,3 @@
-# MIT License
-# 
-# Copyright (c) 2025 National Instruments Corporation
-# 
-# Permission is hereby granted, free of charge, to any person obtaining a copy of this
-# software and associated documentation files (the "Software"), to deal in the Software
-# without restriction, including without limitation the rights to use, copy, modify, merge,
-# publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
-# to whom the Software is furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in all copies or
-# substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
-# PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
-# FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-# OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-# DEALINGS IN THE SOFTWARE.
-#
-
 import csv
 import os
 import sys
@@ -27,6 +6,7 @@ from mako.template import Template
 from xml.dom.minidom import parseString
 from dataclasses import dataclass
 import configparser
+import common
 
 # Constants
 BOARDIO_WRAPPER_NAME = "BoardIO"
@@ -58,6 +38,7 @@ class FileConfiguration:
     clock_output: str
     window_vhdl_template: str
     window_vhdl_output: str
+    window_instantiation_example: str
     target_xml_template: str
     target_xml_output: str
     include_clip_socket_ports: bool
@@ -90,6 +71,7 @@ def load_config(config_path=None):
         clock_output=None,
         window_vhdl_template=None,
         window_vhdl_output=None,
+        window_instantiation_example=None,
         target_xml_template=None,
         target_xml_output=None,
         include_clip_socket_ports=True,
@@ -109,6 +91,7 @@ def load_config(config_path=None):
     files.clock_output = settings.get('ClockXML')
     files.window_vhdl_template = settings.get('WindowVhdlTemplate')
     files.window_vhdl_output = settings.get('WindowVhdlOutput')
+    files.window_instantiation_example = settings.get('WindowInstantiationExample')
     files.target_xml_template = settings.get('TargetXMLTemplate')
     files.target_xml_output = settings.get('TargetXMLOutput')
     
@@ -119,7 +102,7 @@ def load_config(config_path=None):
     # Verify required paths
     required_fields = [
         'custom_signals_csv', 'boardio_output', 'clock_output',
-        'window_vhdl_template', 'window_vhdl_output', 
+        'window_vhdl_template', 'window_vhdl_output', 'window_instantiation_example', 
         'target_xml_template', 'target_xml_output'
     ]
     
@@ -313,7 +296,7 @@ def generate_xml_from_csv(csv_path, boardio_output_path, clock_output_path):
         sys.exit(1)
 
 
-def generate_vhdl_from_csv(csv_path, template_path, output_path, include_clip_socket):
+def generate_vhdl_from_csv(csv_path, template_path, output_path, include_clip_socket, include_custom_io):
     """Generate VHDL from CSV using a Mako template"""
     try:
         # Read signals from CSV
@@ -337,7 +320,8 @@ def generate_vhdl_from_csv(csv_path, template_path, output_path, include_clip_so
             
         output_text = template.render(
             custom_signals=signals,
-            include_clip_socket=include_clip_socket
+            include_clip_socket=include_clip_socket,
+            include_custom_io=include_custom_io
         )
         
         # Write output file
@@ -382,7 +366,28 @@ def generate_target_xml(template_path, output_path, include_clip_socket, include
         sys.exit(1)
 
 
-def main():
+def generate_vhdl_instantiation_example(vhdl_path, output_path):
+    """
+    Generate VHDL entity instantiation example from VHDL file
+    
+    Args:
+        vhdl_path (str): Path to the input VHDL file
+        output_path (str): Path where the instantiation example will be written
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Use the common module's function to generate instantiation
+        common.generate_entity_instantiation(vhdl_path, output_path)
+        print(f"Generated TheWindow VHDL instantiation example: {output_path}")
+        
+    except Exception as e:
+        print(f"Error generating TheWindow VHDL instantiation example: {e}")
+        sys.exit(1)
+
+
+def gen_lv_target_support():
     """Generate target support files"""
     try:
         # Load configuration
@@ -401,7 +406,13 @@ def main():
             config.custom_signals_csv, 
             config.window_vhdl_template, 
             config.window_vhdl_output,
-            config.include_clip_socket_ports
+            config.include_clip_socket_ports,
+            config.include_custom_io
+        )
+
+        generate_vhdl_instantiation_example(
+            config.window_vhdl_output,
+            config.window_instantiation_example
         )
         
         generate_target_xml(
@@ -417,6 +428,11 @@ def main():
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
+
+
+def main():
+    """Main function to run the script"""
+    gen_lv_target_support()
 
 
 if __name__ == "__main__":
