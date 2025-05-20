@@ -4,7 +4,7 @@
 for /f "tokens=3" %%v in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v "PROCESSOR_ARCHITECTURE"') do set "PROCESSOR_ARCHITECTURE=%%v"
 
 setlocal enabledelayedexpansion
-set configFileName=vivadoprojectsettings.ini
+set configFileName=projectsettings.ini
 
 echo "%cd%\%configFileName%"
 

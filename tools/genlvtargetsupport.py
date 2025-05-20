@@ -55,7 +55,7 @@ def parse_bool(value, default=False):
 def load_config(config_path=None):
     """Load configuration from INI file"""
     if config_path is None:
-        config_path = os.path.join(os.getcwd(), "vivadoprojectsettings.ini")
+        config_path = os.path.join(os.getcwd(), "projectsettings.ini")
     
     if not os.path.exists(config_path):
         print(f"Error: Configuration file {config_path} not found.")
@@ -86,14 +86,14 @@ def load_config(config_path=None):
     settings = config['LVFPGATargetSettings']
     
     # Load path settings
-    files.custom_signals_csv = settings.get('CustomSignalsCSV')
-    files.boardio_output = settings.get('BoardIOXML')
-    files.clock_output = settings.get('ClockXML')
-    files.window_vhdl_template = settings.get('WindowVhdlTemplate')
-    files.window_vhdl_output = settings.get('WindowVhdlOutput')
-    files.window_instantiation_example = settings.get('WindowInstantiationExample')
-    files.target_xml_template = settings.get('TargetXMLTemplate')
-    files.target_xml_output = settings.get('TargetXMLOutput')
+    files.custom_signals_csv = common.resolve_path(settings.get('CustomSignalsCSV'))
+    files.boardio_output = common.resolve_path(settings.get('BoardIOXML'))
+    files.clock_output = common.resolve_path(settings.get('ClockXML'))
+    files.window_vhdl_template = common.resolve_path(settings.get('WindowVhdlTemplate'))
+    files.window_vhdl_output = common.resolve_path(settings.get('WindowVhdlOutput'))
+    files.window_instantiation_example = common.resolve_path(settings.get('WindowInstantiationExample'))
+    files.target_xml_template = common.resolve_path(settings.get('TargetXMLTemplate'))
+    files.target_xml_output = common.resolve_path(settings.get('TargetXMLOutput'))
     
     # Load boolean settings
     files.include_clip_socket_ports = parse_bool(settings.get('IncludeCLIPSocketInTarget'), True)
@@ -115,17 +115,9 @@ def load_config(config_path=None):
     return files
 
 
-def ensure_dir_exists(filepath):
-    """Create directory if it doesn't exist"""
-    output_dir = os.path.dirname(filepath)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-        print(f"Created directory: {output_dir}")
-
-
 def write_tree_to_xml(root, output_file):
     """Write an XML tree to a formatted XML file"""
-    ensure_dir_exists(output_file)
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
     rough_string = ET.tostring(root, encoding="utf-8")
     pretty_xml = parseString(rough_string).toprettyxml(indent="  ")
@@ -325,7 +317,7 @@ def generate_vhdl_from_csv(csv_path, template_path, output_path, include_clip_so
         )
         
         # Write output file
-        ensure_dir_exists(output_path)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, 'w') as f:
             f.write(output_text)
             
@@ -355,7 +347,7 @@ def generate_target_xml(template_path, output_path, include_clip_socket, include
         )
         
         # Write output file
-        ensure_dir_exists(output_path)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, 'w') as f:
             f.write(output_text)
             
