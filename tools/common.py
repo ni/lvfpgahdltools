@@ -20,12 +20,11 @@ def handle_long_path(path):
         return f"\\\\?\\{abs_path}"
     return path
 
-def ensure_directory(path):
-    """Create directory if it doesn't exist"""
-    directory = os.path.dirname(path)
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory, exist_ok=True)
-        print(f"Created directory: {directory}")
+
+def resolve_path(rel_path):
+    abs_path = os.path.normpath(os.path.join(os.getcwd(), rel_path))
+    return abs_path
+
 
 def parse_vhdl_entity(vhdl_path):
     """Parse VHDL file to extract entity information - port names only"""
@@ -121,7 +120,7 @@ def generate_entity_instantiation(vhdl_path, output_path, architecture='rtl'):
     entity_name, ports = parse_vhdl_entity(vhdl_path)
 
     # Create output directory if needed
-    ensure_directory(output_path)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)   
     
     # Generate entity instantiation
     with open(output_path, 'w') as f:

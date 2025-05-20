@@ -10,14 +10,14 @@ import common
 @dataclass
 class FileConfiguration:
     """Class to store file paths and configuration for CLIP migration."""
-    input_path: str
-    output_path: str
+    input_xml_path: str
+    output_csv_path: str
     clip_hdl_path: str
-    instantiation_path: str
+    clip_inst_example_path: str
+    clip_instance_path : str
     clip_xdc_paths: list
-    clip_instance_path: str
     updated_xdc_folder: str
-    clip_to_window_signal_definitions: str  # New field for signal definitions
+    clip_to_window_signal_definitions: str
 
 
 def load_config(config_path=None):
@@ -31,7 +31,7 @@ def load_config(config_path=None):
         FileConfiguration: Object containing all configuration settings
     """
     if config_path is None:
-        config_path = os.path.join(os.getcwd(), "vivadoprojectsettings.ini")
+        config_path = os.path.join(os.getcwd(), "projectsettings.ini")
     
     if not os.path.exists(config_path):
         print(f"Error: Configuration file {config_path} not found.")
@@ -41,58 +41,36 @@ def load_config(config_path=None):
     config.read(config_path)
     
     # Get required settings
-    try:
-        settings = config['CLIPMigrationSettings']
-        input_xml = settings['CLIPXML']
-        output_csv = settings['CustomSignalsCSV']
-        clip_hdl_top = settings['CLIPHDLTop']
-        clip_xdc = settings['CLIPXDCIn']
-        clip_instantiation = settings['CLIPInstantiationExample']
-        clip_instance_path = settings['CLIPInstancePath']
-        updated_xdc = settings['CLIPXDCOutFolder']
-        
-        # Try to get the new setting, use a default if not found
-        clip_to_window = settings.get('CLIPtoWindowSignalDefinitions', 'CLIPMigration/Outputs/ClipToWindow.vhd')
-        
-    except KeyError as e:
-        sys.exit(f"Error: Missing {e} in configuration file.")
-        traceback.print_exc()
-    
-    # Resolve relative paths - use absolute paths to handle the "../.." properly
-    base_dir = os.path.dirname(os.path.abspath(config_path))
-    
-    # Process paths that might be deep relative paths (../../)
-    def resolve_path(rel_path):
-        abs_path = os.path.normpath(os.path.join(base_dir, rel_path))
-        return abs_path
-    
-    input_path = resolve_path(input_xml)
-    output_path = resolve_path(output_csv)
-    clip_hdl_path = resolve_path(clip_hdl_top)
-    instantiation_path = resolve_path(clip_instantiation)
-    clip_to_window_path = resolve_path(clip_to_window)
-    
+    settings = config['CLIPMigrationSettings']
+     
+    files = FileConfiguration(
+        input_xml_path=None,
+        output_csv_path=None,
+        clip_hdl_path=None,
+        clip_inst_example_path=None,
+        clip_instance_path=None,
+        clip_xdc_paths=[],
+        updated_xdc_folder=None,
+        clip_to_window_signal_definitions=None
+    )   
+
+    files.input_xml_path = common.resolve_path(settings['CLIPXML'])
+    files.output_csv_path = common.resolve_path(settings['CustomSignalsCSV'])
+    files.clip_hdl_path = common.resolve_path(settings['CLIPHDLTop'])
+    files.clip_inst_example_path = common.resolve_path(settings['CLIPInstantiationExample'])
+    files.clip_instance_path = settings['CLIPInstancePath'] # This is a HDL hierarchy path, not a file path
+    files.clip_to_window_signal_definitions = common.resolve_path(settings.get('CLIPtoWindowSignalDefinitions'))
+    files.updated_xdc_folder = common.resolve_path(settings['CLIPXDCOutFolder'])
+       
     # Handle multiple XDC files - split by lines and strip whitespace
-    clip_xdc_paths = []
+    clip_xdc = settings['CLIPXDCIn']
     for xdc_file in clip_xdc.strip().split('\n'):
         xdc_file = xdc_file.strip()
         if xdc_file:
-            abs_xdc_path = resolve_path(xdc_file)
-            clip_xdc_paths.append(abs_xdc_path)
+            abs_xdc_path = common.resolve_path(xdc_file)
+            files.clip_xdc_paths.append(abs_xdc_path)
     
-    updated_xdc_folder = resolve_path(updated_xdc)
-    
-    # Return a FileConfiguration object instead of a tuple
-    return FileConfiguration(
-        input_path=input_path,
-        output_path=output_path,
-        clip_hdl_path=clip_hdl_path,
-        instantiation_path=instantiation_path,
-        clip_xdc_paths=clip_xdc_paths,
-        clip_instance_path=clip_instance_path,
-        updated_xdc_folder=updated_xdc_folder,
-        clip_to_window_signal_definitions=clip_to_window_path
-    )
+    return files
 
 
 def find_case_insensitive(element, xpath):
@@ -223,19 +201,19 @@ def extract_data_type(element):
     return "Unknown"
 
 
-def process_clip_xml(input_path, output_path):
+def process_clip_xml(input_xml_path, output_csv_path):
     """Process CLIP XML and generate CSV"""
     try:
         # Validate input file
-        if not os.path.exists(input_path):
-            sys.exit(f"Error: Input file not found: {input_path}")
+        if not os.path.exists(input_xml_path):
+            sys.exit(f"Error: Input file not found: {input_xml_path}")
             
         # Ensure output directory exists
-        common.ensure_directory(output_path)
+        os.makedirs(os.path.dirname(output_csv_path), exist_ok=True)
         
         # Parse XML
         try:
-            tree = ET.parse(input_path)
+            tree = ET.parse(input_xml_path)
             root = tree.getroot()
         except ET.ParseError as e:
             sys.exit(f"Error parsing XML file: {e}")
@@ -243,10 +221,10 @@ def process_clip_xml(input_path, output_path):
         # Find LabVIEW interface
         lv_interface = find_case_insensitive(root, ".//Interface[@Name='LabVIEW']")
         if lv_interface is None:
-            sys.exit(f"No LabVIEW interface found in {input_path}")
+            sys.exit(f"No LabVIEW interface found in {input_xml_path}")
         
         # Open CSV for writing
-        with open(output_path, 'w', newline='') as csvfile:
+        with open(output_csv_path, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             
             # Write header
@@ -285,45 +263,47 @@ def process_clip_xml(input_path, output_path):
                     lv_name, hdl_name, direction, signal_type,
                     data_type, use_in_scl, clock_domain
                 ])
-        print(f"Processed XML file: {input_path}")
+        print(f"Processed XML file: {input_xml_path}")
     
     except Exception as e:
         print(f"Error processing XML: {str(e)}")
         traceback.print_exc()
 
 
-def process_constraint_file(input_path, output_folder, instance_path):
+def process_constraint_file(input_xml_path, output_folder, instance_path):
     """Process XDC constraint file and replace %ClipInstancePath% with the instance path"""
     try:
-        long_input_path = common.handle_long_path(input_path)
+        long_input_xml_path = common.handle_long_path(input_xml_path)
         long_output_folder = common.handle_long_path(output_folder)
         
-        if not os.path.exists(long_input_path):
-            print(f"Error: XDC file not found: {input_path}")
+        if not os.path.exists(long_input_xml_path):
+            print(f"Error: XDC file not found: {input_xml_path}")
         
         # Create output directory if needed
-        os.makedirs(long_output_folder, exist_ok=True)
+        os.makedirs(os.path.dirname(long_output_folder), exist_ok=True)
         
         # Extract the original filename
-        file_name = os.path.basename(input_path)
-        output_path = os.path.join(output_folder, file_name)
-        long_output_path = common.handle_long_path(output_path)
+        file_name = os.path.basename(input_xml_path)
+        output_csv_path = os.path.join(output_folder, file_name)
+        long_output_csv_path = common.handle_long_path(output_csv_path)
         
         # Read the input file
-        with open(long_input_path, 'r') as infile:
+        with open(long_input_xml_path, 'r') as infile:
             content = infile.read()
             
         # Replace all instances of %ClipInstancePath%
         updated_content = content.replace('%ClipInstancePath%', instance_path)
 
+        os.makedirs(os.path.dirname(long_output_csv_path), exist_ok=True)
+
         # Write the updated content to the output file
-        with open(long_output_path, 'w') as outfile:
+        with open(long_output_csv_path, 'w') as outfile:
             outfile.write(updated_content)
             
         print(f"Processed XDC file: {file_name}")
         
     except Exception as e:
-        print(f"Error processing XDC file {os.path.basename(input_path)}: {str(e)}")
+        print(f"Error processing XDC file {os.path.basename(input_xml_path)}: {str(e)}")
         traceback.print_exc()
 
 
@@ -345,7 +325,7 @@ def generate_clip_to_window_signals(input_xml_path, output_vhdl_path):
             return False
             
         # Ensure output directory exists
-        common.ensure_directory(output_vhdl_path)
+        os.makedirs(os.path.dirname(output_vhdl_path), exist_ok=True)
         
         # Parse XML
         try:
@@ -435,41 +415,36 @@ def map_lv_type_to_vhdl(lv_type):
     
     # Handle FXP - extract word length
     elif lv_type.startswith("FXP"):
-        try:
-            # Format is typically FXP(word_length,int_word_length,signed/unsigned)
-            parts = lv_type.strip("FXP(").strip(")").split(",")
-            word_length = int(parts[0])
-            return f"std_logic_vector({word_length-1} downto 0)"
-        except:
-            return "std_logic_vector(31 downto 0)"  # Default if parsing fails
+        parts = lv_type.strip("FXP(").strip(")").split(",")
+        word_length = int(parts[0])
+        return f"std_logic_vector({word_length-1} downto 0)"
+
     
     # Handle Array
     elif lv_type.startswith("Array"):
-        try:
-            # Format is typically Array<ElementType>[Size]
-            element_type = lv_type.split("<")[1].split(">")[0]
-            size = lv_type.split("[")[1].split("]")[0]
-            
-            # Map the element type to VHDL
-            element_vhdl = map_lv_type_to_vhdl(element_type)
-            
-            # If element_vhdl contains "std_logic_vector", we need special handling
-            if "std_logic_vector" in element_vhdl:
-                # Extract the range
-                range_match = re.search(r'\((\d+) downto (\d+)\)', element_vhdl)
-                if range_match:
-                    high = int(range_match.group(1))
-                    low = int(range_match.group(2))
-                    bit_width = high - low + 1
-                    return f"std_logic_vector({bit_width * int(size) - 1} downto 0)"
-            
-            # Default array representation
-            return f"std_logic_vector({int(size) * 32 - 1} downto 0)"
-        except:
-            return "std_logic_vector(31 downto 0)"  # Default if parsing fails
+        # Format is typically Array<ElementType>[Size]
+        element_type = lv_type.split("<")[1].split(">")[0]
+        size = lv_type.split("[")[1].split("]")[0]
+        
+        # Map the element type to VHDL
+        element_vhdl = map_lv_type_to_vhdl(element_type)
+        
+        # If element_vhdl contains "std_logic_vector", we need special handling
+        if "std_logic_vector" in element_vhdl:
+            # Extract the range
+            range_match = re.search(r'\((\d+) downto (\d+)\)', element_vhdl)
+            if range_match:
+                high = int(range_match.group(1))
+                low = int(range_match.group(2))
+                bit_width = high - low + 1
+                return f"std_logic_vector({bit_width * int(size) - 1} downto 0)"
+        
+        # Default array representation
+        return f"std_logic_vector({int(size) * 32 - 1} downto 0)"
     
-    # Default type for unknown types
-    return "std_logic_vector(31 downto 0)"
+    else:
+        print(f"Warning: Unrecognized LabVIEW type '{lv_type}', defaulting to std_logic_vector")
+        return "std_logic_vector(0 downto 0)"
 
 
 def main():
@@ -480,14 +455,14 @@ def main():
         
         # Process XML
         process_clip_xml(
-            config.input_path, 
-            config.output_path
+            config.input_xml_path, 
+            config.output_csv_path
         )
         
         # Generate entity instantiation
         common.generate_entity_instantiation(
             config.clip_hdl_path, 
-            config.instantiation_path
+            config.clip_inst_example_path
         )
         
         # Process all constraint files
@@ -500,7 +475,7 @@ def main():
             
         # Generate CLIP to Window signal definitions
         generate_clip_to_window_signals(
-            config.input_path,
+            config.input_xml_path,
             config.clip_to_window_signal_definitions
         )
             

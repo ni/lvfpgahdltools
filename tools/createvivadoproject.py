@@ -25,8 +25,6 @@ import configparser
 import argparse
 import subprocess
 from collections import defaultdict
-from mako.template import Template
-import zipfile
 from enum import Enum
 import genlvtargetsupport
 
@@ -235,43 +233,6 @@ def run_command(command, cwd=None):
         print(result.stdout)
     return result.returncode, result.stdout.strip()
 
-def extract_deps_from_zip(deps_folder):
-    """
-    Extracts the contents of zip files into the specified folder.
-    
-    If deps_zip_file is provided, only that file is extracted.
-    Otherwise, all .zip files in the current directory are extracted.
-    
-    :param deps_folder: Target folder where zip contents will be extracted
-    :param deps_zip_file: Optional specific zip file to extract
-    """
-    # Handle long paths on Windows
-    if os.name == 'nt':
-        deps_folder_long = f"\\\\?\\{os.path.abspath(deps_folder)}"
-    else:
-        deps_folder_long = deps_folder
-
-    # Delete the target directory once before extracting any files
-    print(f"Cleaning target directory: {deps_folder}")
-    shutil.rmtree(deps_folder_long, ignore_errors=True)
-    os.makedirs(deps_folder_long, exist_ok=True)
-    
-    # Find all zip files in the current directory
-    zip_files = [f for f in os.listdir() if f.endswith('.zip')]
-        
-    # Extract each zip file
-    for zip_file in zip_files:            
-        try:
-            print(f"Extracting '{zip_file}' into '{deps_folder}'...")
-            shutil.unpack_archive(zip_file, deps_folder_long, 'zip')
-            print(f"Successfully extracted '{zip_file}'")
-        except Exception as e:
-            print(f"Error extracting '{zip_file}': {e}")
-            
-    # Check if any files were extracted
-    extracted_files = os.listdir(deps_folder)
-    print(f"Extracted {len(extracted_files)} items to {deps_folder}")
-
 class ProjectMode(Enum):
     NEW = "new"
     UPDATE = "update"
@@ -370,23 +331,18 @@ def main():
     Parses command-line arguments and executes the requested function.
     """
     parser = argparse.ArgumentParser(description="Vivado Project Tools")
-    parser.add_argument("function", choices=["create_project", "extract_deps"], help="Function to execute")
     parser.add_argument("--overwrite", "-o", action="store_true", help="Overwrite and create a new project")
     parser.add_argument("--updatefiles", "-u", action="store_true", help="Update files in the existing project")
     args = parser.parse_args()
 
+    config_path = os.path.join(os.getcwd(), 'projectsettings.ini')
+    # Check if the configuration file exists
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Configuration file '{config_path}' not found. Please ensure it exists in the current working directory.")
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    create_project_handler(config, overwrite=args.overwrite, updatefiles=args.updatefiles)
 
-    if args.function == "create_project":
-        config_path = os.path.join(os.getcwd(), 'vivadoprojectsettings.ini')
-        # Check if the configuration file exists
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Configuration file '{config_path}' not found. Please ensure it exists in the current working directory.")
-        config = configparser.ConfigParser()
-        config.read(config_path)
-        create_project_handler(config, overwrite=args.overwrite, updatefiles=args.updatefiles)
-    elif args.function == "extract_deps":
-        deps_folder = "githubdeps"
-        extract_deps_from_zip(deps_folder)
 
 if __name__ == "__main__":
     main()
