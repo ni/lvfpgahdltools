@@ -1,23 +1,20 @@
-# MIT License
-# 
 # Copyright (c) 2025 National Instruments Corporation
 # 
-# Permission is hereby granted, free of charge, to any person obtaining a copy of this
-# software and associated documentation files (the "Software"), to deal in the Software
-# without restriction, including without limitation the rights to use, copy, modify, merge,
-# publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
-# to whom the Software is furnished to do so, subject to the following conditions:
-# 
-# The above copyright notice and this permission notice shall be included in all copies or
-# substantial portions of the Software.
-# 
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
-# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
-# PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
-# FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-# OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-# DEALINGS IN THE SOFTWARE.
+# SPDX-License-Identifier: MIT
 #
+"""
+Vivado Project Creation Tool
+
+This script automates the creation and updating of Xilinx Vivado projects.
+It handles file collection, dependency management, and TCL script generation to
+streamline the FPGA development workflow.
+
+The tool supports:
+- Creating new Vivado projects with all required source files
+- Updating existing projects with modified files
+- Managing project dependencies
+- Handling duplicate file detection
+"""
 
 import os
 import shutil
@@ -28,46 +25,42 @@ from collections import defaultdict
 from enum import Enum
 import genlvtargetsupport
 
-def list_all_files(folder_path):
-    """
-    Lists all files in a folder and its subfolders that match specific extensions.
-    This is used to gather relevant files (e.g., .vhd, .xdc, .edf) for Vivado projects.
-    """
-    all_files = []
-    for root, dirs, files in os.walk(folder_path):
-        for file in files:
-            if file.endswith('.vhd') or file.endswith('.xdc') or file.endswith('edf'):  # Only include specific file types
-                all_files.append(fix_file_slashes(os.path.join(root, file)))
-    return all_files
-
-def add_files_to_list(file_list, files):
-    """
-    Adds additional files to the file list.
-    This is used to include specific files that are not part of the folder-based inclusion.
-    """
-    for file in files:
-        file_list.append(file)  
-    return file_list
 
 def fix_file_slashes(path):
     """
     Converts backslashes to forward slashes in file paths.
-    This ensures compatibility across platforms (e.g., Windows and Linux).
+    
+    Vivado and TCL scripts work better with forward slashes in paths,
+    regardless of platform. This ensures consistent path formatting.
+    
+    Args:
+        path (str): File path potentially containing backslashes
+        
+    Returns:
+        str: Path with all backslashes converted to forward slashes
     """
     return path.replace('\\', '/')
-
-def remove_files_from_list(list_a, list_b):
-    """
-    Removes all files in list_b from list_a.
-    This is used to exclude specific files or folders from the final file list.
-    """
-    set_b = set(list_b)
-    return [file for file in list_a if file not in set_b]
 
 def get_vivado_project_files(config):
     """
     Processes the configuration to generate the list of files for the Vivado project.
-    This also identifies duplicates and handles dependencies.
+    
+    This is the main function for file gathering that:
+    1. Reads file list references from the config file
+    2. Processes each list to collect FPGA design files
+    3. Identifies and reports duplicate files
+    4. Copies dependency files to a centralized location
+    5. Returns a sorted, normalized list of all required files
+    
+    Args:
+        config (ConfigParser): Parsed configuration object
+        
+    Returns:
+        list: Complete list of files for the Vivado project
+        
+    Raises:
+        FileNotFoundError: If a specified file list path doesn't exist
+        ValueError: If duplicate files are found
     """
     # Get the lists of Vivado project files from the configuration
     lists_of_files = config.get('VivadoProjectSettings', 'VivadoProjectFilesLists').split()
@@ -98,7 +91,7 @@ def get_vivado_project_files(config):
     find_and_log_duplicates(file_list)
 
     # Copy dependency files to the gathereddeps folder
-    # Retuns the file list with the files from githubdeps having new locations in gathereddeps
+    # Returns the file list with the files from githubdeps having new locations in gathereddeps
     file_list = copy_deps_files(file_list)
 
     # Sort the final file list
@@ -109,14 +102,34 @@ def get_vivado_project_files(config):
 def has_spaces(file_path):
     """
     Checks if the given file path contains spaces.
-    This is used to ensure proper handling of file paths in Vivado TCL scripts.
+    
+    TCL scripts require special handling for paths containing spaces,
+    so this helper function identifies paths needing additional quoting.
+    
+    Args:
+        file_path (str): Path to check for spaces
+        
+    Returns:
+        bool: True if the path contains spaces, False otherwise
     """
     return ' ' in file_path
 
 def get_TCL_add_files_text(file_list, file_dir):
     """
     Generates TCL commands to add files to a Vivado project.
-    This converts file paths to relative paths and ensures proper quoting for paths with spaces.
+    
+    Creates properly formatted 'add_files' TCL commands for each file in the list.
+    It handles special cases such as:
+    - Converting absolute paths to relative paths
+    - Properly quoting paths with spaces
+    - Removing Windows long path prefixes
+    
+    Args:
+        file_list (list): List of files to include in the project
+        file_dir (str): Base directory for computing relative paths
+        
+    Returns:
+        str: Multi-line TCL commands to add all files
     """
     def strip_long_path_prefix(path):
         # Remove the \\?\ prefix if it exists (used for long paths on Windows)
@@ -136,7 +149,20 @@ def get_TCL_add_files_text(file_list, file_dir):
 def replace_placeholders_in_file(file_path, new_file_path, add_files, project_name, top_entity):
     """
     Replaces placeholders in a template file with actual values.
-    This is used to generate Vivado TCL scripts for creating or updating projects.
+    
+    This function takes a TCL template file and substitutes key placeholders with
+    project-specific values to create a customized Vivado TCL script.
+    The main substitutions are:
+    - ADD_FILES: List of files to add to the project
+    - PROJ_NAME: Name of the Vivado project
+    - TOP_ENTITY: Top-level VHDL entity name
+    
+    Args:
+        file_path (str): Path to the template file
+        new_file_path (str): Path where the generated file will be saved
+        add_files (str): TCL commands to add files to the project
+        project_name (str): Name of the Vivado project
+        top_entity (str): Name of the top-level entity
     """
     with open(file_path, 'r') as file:
         file_contents = file.read()
@@ -153,7 +179,22 @@ def replace_placeholders_in_file(file_path, new_file_path, add_files, project_na
 def find_and_log_duplicates(file_list):
     """
     Finds duplicate file names in the file list and logs their full paths to a file.
-    Raises an error if duplicates are found to prevent issues in the Vivado project.
+    
+    Duplicate files can cause compilation issues in Vivado projects, as the tool may
+    pick the wrong file version. This function identifies files with the same name but
+    different paths, which typically indicates a potential conflict.
+    
+    The function:
+    1. Groups files by base name (without path)
+    2. Identifies duplicates (same name, different paths)
+    3. Logs details to a file for analysis
+    4. Raises an error to prevent proceeding with duplicates
+    
+    Args:
+        file_list (list): List of file paths to check
+        
+    Raises:
+        ValueError: If any duplicate filenames are found
     """
     file_dict = defaultdict(list)
     duplicates_found = False
@@ -189,10 +230,26 @@ def find_and_log_duplicates(file_list):
 def copy_deps_files(file_list):
     """
     Copies files with "githubdeps" in their path to the "objects/gathereddeps" folder.
-    This ensures that dependency files are gathered in a central location for the Vivado project.
-
-    Returns the file list of the locations of the copied files in objects/gathereddeps
-    This returned file list is used to generate the TCL add_files text.
+    
+    This centralizes external dependencies into the project's local structure, which:
+    1. Ensures consistent file locations regardless of development environment
+    2. Makes the project more portable across different machines
+    3. Avoids dependencies on external repositories during build
+    
+    The function handles:
+    - Creating the target directory if needed
+    - Handling Windows long paths for deep directory structures
+    - Setting proper file permissions
+    - Error reporting for failed copy operations
+    
+    Args:
+        file_list (list): Original list of file paths
+        
+    Returns:
+        list: Updated file list with dependency files moved to local paths
+        
+    Raises:
+        IOError: If any file copy operation fails
     """
     target_folder = os.path.join(os.getcwd(), 'objects/gathereddeps')
     os.makedirs(target_folder, exist_ok=True)
@@ -222,7 +279,23 @@ def copy_deps_files(file_list):
 def run_command(command, cwd=None):
     """
     Runs a shell command and captures its output.
-    This is used to execute Vivado commands or other system commands.
+    
+    This function provides a centralized way to execute external commands
+    such as Vivado operations or system utilities. It:
+    1. Prints the command before execution for debugging
+    2. Captures both stdout and stderr
+    3. Reports any errors that occur during execution
+    
+    Args:
+        command (str): Command line to execute
+        cwd (str, optional): Working directory for the command
+        
+    Returns:
+        tuple: (return_code, stdout_content)
+        
+    Note:
+        The command is run in shell mode, which allows for redirection and piping
+        but can pose security risks if used with untrusted input.
     """
     print(command)
     result = subprocess.run(command, cwd=cwd, shell=True, capture_output=True, text=True)
@@ -234,12 +307,40 @@ def run_command(command, cwd=None):
     return result.returncode, result.stdout.strip()
 
 class ProjectMode(Enum):
+    """
+    Enum defining the possible modes for project operations.
+    
+    NEW: Create a fresh project from scratch
+    UPDATE: Update the files in an existing project
+    
+    This helps clarify the intent of operations and provide type safety
+    compared to using raw strings.
+    """
     NEW = "new"
     UPDATE = "update"
 
 def create_project(mode: ProjectMode, config):
     """
     Creates or updates a Vivado project based on the specified mode.
+    
+    This function:
+    1. Resolves paths to template and output TCL scripts
+    2. Gathers all project files based on configuration
+    3. Generates TCL commands to add these files
+    4. Creates customized TCL scripts for project creation or updating
+    5. Runs LabVIEW target support generation to create required files
+    6. Executes Vivado in batch mode with the appropriate script
+    
+    The function handles two main operations:
+    - Creating a new project from scratch (NEW mode)
+    - Updating files in an existing project (UPDATE mode)
+    
+    Args:
+        mode (ProjectMode): Operation mode (NEW or UPDATE)
+        config (ConfigParser): Parsed configuration settings
+        
+    Raises:
+        ValueError: If an unsupported mode is specified
     """
     current_dir = os.getcwd()
     new_proj_template_path = os.path.join(current_dir, 'TCL/CreateNewProjectTemplate.tcl')
@@ -295,6 +396,28 @@ def create_project(mode: ProjectMode, config):
 def create_project_handler(config, overwrite=False, updatefiles=False):
     """
     Handles command line arguments and performs the desired create Vivado project operation.
+    
+    This function serves as the main coordination point between command-line arguments
+    and the project creation/updating functionality. It:
+    1. Validates the combination of command-line arguments
+    2. Checks if the project already exists
+    3. Dispatches to the appropriate mode (NEW or UPDATE)
+    
+    The function implements the following logic:
+    - With no flags: Create new project (fails if project exists)
+    - With --overwrite: Create new project (overwrites existing)
+    - With --updatefiles: Update existing project (fails if project doesn't exist)
+    - With both flags: Error (invalid combination)
+    
+    Args:
+        config (ConfigParser): Parsed configuration settings
+        overwrite (bool): Whether to overwrite an existing project
+        updatefiles (bool): Whether to update files in an existing project
+        
+    Raises:
+        FileExistsError: If the project exists and neither overwrite nor update was requested
+        FileNotFoundError: If update was requested but the project doesn't exist
+        ValueError: If both overwrite and update flags were provided
     """
     project_name = config.get('VivadoProjectSettings', 'VivadoProjectName')
 
@@ -328,7 +451,20 @@ def create_project_handler(config, overwrite=False, updatefiles=False):
 def main():
     """
     Main entry point for the script.
-    Parses command-line arguments and executes the requested function.
+    
+    This function:
+    1. Sets up the command-line argument parser
+    2. Loads the configuration file
+    3. Calls the project handler with appropriate parameters
+    
+    Command-line arguments:
+    --overwrite (-o): Force creation of a new project, overwriting existing
+    --updatefiles (-u): Update files in an existing project
+    
+    Configuration is read from 'projectsettings.ini' in the current directory.
+    
+    Raises:
+        FileNotFoundError: If the configuration file is missing
     """
     parser = argparse.ArgumentParser(description="Vivado Project Tools")
     parser.add_argument("--overwrite", "-o", action="store_true", help="Overwrite and create a new project")

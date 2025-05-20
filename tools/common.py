@@ -1,3 +1,8 @@
+# Copyright (c) 2025 National Instruments Corporation
+# 
+# SPDX-License-Identifier: MIT
+#
+
 import os
 import re
 import traceback
@@ -5,7 +10,11 @@ import traceback
 def handle_long_path(path):
     """
     Handle Windows long path limitations by prefixing with \\?\ when needed.
-    This allows paths up to ~32K characters.
+    This allows paths up to ~32K characters instead of the default 260 character limit.
+    
+    The \\?\ prefix tells Windows API to use extended-length path handling, bypassing
+    the normal MAX_PATH limitation. This is essential when working with deeply nested
+    project directories or auto-generated files with long names.
     
     Args:
         path (str): The file or directory path to process
@@ -22,12 +31,38 @@ def handle_long_path(path):
 
 
 def resolve_path(rel_path):
+    """
+    Convert a relative path to an absolute path based on the current working directory.
+    
+    This is useful for processing configuration file paths that may be specified
+    relative to the location of the configuration file itself.
+    
+    Args:
+        rel_path (str): Relative path to convert
+        
+    Returns:
+        str: Normalized absolute path
+    """
     abs_path = os.path.normpath(os.path.join(os.getcwd(), rel_path))
     return abs_path
 
 
 def parse_vhdl_entity(vhdl_path):
-    """Parse VHDL file to extract entity information - port names only"""
+    """
+    Parse VHDL file to extract entity information - port names only.
+    
+    This function analyzes a VHDL file and extracts the entity name and all 
+    port names from the entity declaration. It handles complex VHDL syntax including
+    multi-line port declarations, comments, and multiple ports with the same data type.
+    
+    Args:
+        vhdl_path (str): Path to the VHDL file to parse
+        
+    Returns:
+        tuple: (entity_name, ports_list)
+            - entity_name (str or None): The name of the entity if found, None otherwise
+            - ports_list (list): List of port names, empty if none found or on error
+    """
     # Handle long paths
     long_path = handle_long_path(vhdl_path)
     
@@ -41,6 +76,7 @@ def parse_vhdl_entity(vhdl_path):
             content = f.read()
             
         # Step 1: Find the entity declaration
+        # Use regex to look for "entity <name> is" pattern, case-insensitive
         entity_pattern = re.compile(r'entity\s+(\w+)\s+is', re.IGNORECASE)
         entity_match = entity_pattern.search(content)
         if not entity_match:
@@ -60,6 +96,7 @@ def parse_vhdl_entity(vhdl_path):
         port_start = port_start_match.end()
         
         # Now find the matching closing parenthesis by counting open/close parentheses
+        # This handles nested parentheses in port declarations correctly
         paren_level = 1
         port_end = port_start
         for i in range(port_start, len(content)):
@@ -110,12 +147,20 @@ def parse_vhdl_entity(vhdl_path):
 
 def generate_entity_instantiation(vhdl_path, output_path, architecture='rtl'):
     """
-    Generate VHDL entity instantiation from VHDL file
+    Generate VHDL entity instantiation from VHDL file.
+    
+    Creates a VHDL file containing an entity instantiation using the
+    entity-architecture syntax (entity work.Entity_Name(architecture_name)).
+    All ports are connected to signals with the same name.
     
     Args:
-        vhdl_path: Path to input VHDL file
-        output_path: Path to output VHDL file
-        architecture: Architecture name to use (default: 'rtl')
+        vhdl_path (str): Path to input VHDL file containing entity declaration
+        output_path (str): Path to output VHDL file where instantiation will be written
+        architecture (str): Architecture name to use in the instantiation (default: 'rtl')
+    
+    Note:
+        Signal declarations for ports are not included in the output.
+        They must be declared separately.
     """
     entity_name, ports = parse_vhdl_entity(vhdl_path)
 
@@ -128,10 +173,12 @@ def generate_entity_instantiation(vhdl_path, output_path, architecture='rtl'):
         f.write(f"-- Generated from {os.path.basename(vhdl_path)}\n\n")
         
         # Use entity-architecture syntax
+        # Format: entity_label: entity work.entity_name(architecture_name)
         f.write(f"{entity_name}: entity work.{entity_name} ({architecture})\n")
         f.write("port map (\n")
         
         # Create port mappings
+        # Format: port_name => signal_name
         port_mappings = [f"    {port} => {port}" for port in ports]
         
         if port_mappings:
@@ -139,4 +186,4 @@ def generate_entity_instantiation(vhdl_path, output_path, architecture='rtl'):
             
         f.write("\n);\n")
     print(f"Generated entity instantiation for {entity_name}")
-        
+

@@ -1,3 +1,18 @@
+# Copyright (c) 2025 National Instruments Corporation
+# 
+# SPDX-License-Identifier: MIT
+#
+"""
+CLIP Migration Tool
+
+This module provides functionality to migrate CLIP (Component-Level Intellectual Property)
+files for FlexRIO custom devices. It processes XML files, generates signal declarations,
+updates XDC constraint files, and creates entity instantiations.
+
+The tool handles migration between different FPGA development environments and
+helps in integrating CLIP IP into LabVIEW FPGA projects.
+"""
+
 import xml.etree.ElementTree as ET
 import os
 import sys
@@ -9,26 +24,38 @@ import common
 
 @dataclass
 class FileConfiguration:
-    """Class to store file paths and configuration for CLIP migration."""
-    input_xml_path: str
-    output_csv_path: str
-    clip_hdl_path: str
-    clip_inst_example_path: str
-    clip_instance_path : str
-    clip_xdc_paths: list
-    updated_xdc_folder: str
-    clip_to_window_signal_definitions: str
+    """
+    Class to store file paths and configuration for CLIP migration.
+    
+    This dataclass centralizes all file path management and configuration options,
+    making it easier to pass settings between functions and track dependencies.
+    """
+    input_xml_path: str         # Path to source CLIP XML file
+    output_csv_path: str        # Path where CSV signals will be written
+    clip_hdl_path: str          # Path to top-level CLIP HDL file
+    clip_inst_example_path: str # Path where instantiation example will be written
+    clip_instance_path: str     # HDL hierarchy path for CLIP instance (not a file path)
+    clip_xdc_paths: list        # List of paths to XDC constraint files
+    updated_xdc_folder: str     # Folder where updated XDC files will be written
+    clip_to_window_signal_definitions: str  # Path for CLIP-to-Window signal definitions file
 
 
 def load_config(config_path=None):
     """
     Load configuration from INI file.
     
+    Reads settings from the configuration file and creates a FileConfiguration
+    object with resolved paths. The function handles both relative and absolute 
+    paths, ensuring they're correctly resolved regardless of the current working directory.
+    
     Args:
         config_path: Path to the INI file. If None, searches in the current directory.
         
     Returns:
         FileConfiguration: Object containing all configuration settings
+        
+    Raises:
+        SystemExit: If the configuration file is not found or required settings are missing
     """
     if config_path is None:
         config_path = os.path.join(os.getcwd(), "projectsettings.ini")
@@ -54,6 +81,8 @@ def load_config(config_path=None):
         clip_to_window_signal_definitions=None
     )   
 
+    # Resolve paths from the configuration settings
+    # This converts relative paths to absolute paths based on the current working directory
     files.input_xml_path = common.resolve_path(settings['CLIPXML'])
     files.output_csv_path = common.resolve_path(settings['CustomSignalsCSV'])
     files.clip_hdl_path = common.resolve_path(settings['CLIPHDLTop'])
@@ -74,7 +103,7 @@ def load_config(config_path=None):
 
 
 def find_case_insensitive(element, xpath):
-    """Find an element using case-insensitive tag and attribute matching"""
+    """Find an element using case-insensitive tag and attribute matching."""
     # Keep original implementation...
     if element is None:
         return None
@@ -114,7 +143,7 @@ def find_case_insensitive(element, xpath):
 
 
 def findall_case_insensitive(element, xpath):
-    """Find all elements using case-insensitive tag and attribute matching"""
+    """Find all elements using case-insensitive tag and attribute matching."""
     # Keep original implementation...
     if element is None:
         return []
@@ -149,7 +178,7 @@ def findall_case_insensitive(element, xpath):
 
 
 def get_attribute_case_insensitive(element, attr_name, default=""):
-    """Get attribute value using case-insensitive matching"""
+    """Get attribute value using case-insensitive matching."""
     if element is None:
         return default
         
@@ -202,7 +231,24 @@ def extract_data_type(element):
 
 
 def process_clip_xml(input_xml_path, output_csv_path):
-    """Process CLIP XML and generate CSV"""
+    """
+    Process CLIP XML and generate CSV with signal information.
+    
+    This function:
+    1. Parses the CLIP XML file
+    2. Extracts signal information from the LabVIEW interface
+    3. Converts it to a CSV format suitable for further processing
+    
+    Args:
+        input_xml_path: Path to input CLIP XML file
+        output_csv_path: Path where output CSV will be written
+        
+    Returns:
+        None
+        
+    Raises:
+        SystemExit: If input file not found or XML parsing fails
+    """
     try:
         # Validate input file
         if not os.path.exists(input_xml_path):
@@ -271,8 +317,23 @@ def process_clip_xml(input_xml_path, output_csv_path):
 
 
 def process_constraint_file(input_xml_path, output_folder, instance_path):
-    """Process XDC constraint file and replace %ClipInstancePath% with the instance path"""
+    """
+    Process XDC constraint file and replace %ClipInstancePath% with the instance path.
+    
+    XDC constraint files need to be updated with the correct hierarchical path
+    for the CLIP instance. This function performs that replacement and saves
+    the updated constraints.
+    
+    Args:
+        input_xml_path: Path to input XDC file
+        output_folder: Folder where updated XDC will be saved
+        instance_path: HDL hierarchy path to the CLIP instance
+        
+    Returns:
+        None
+    """
     try:
+        # Handle potential long paths (Windows path length limitations)
         long_input_xml_path = common.handle_long_path(input_xml_path)
         long_output_folder = common.handle_long_path(output_folder)
         
@@ -292,8 +353,11 @@ def process_constraint_file(input_xml_path, output_folder, instance_path):
             content = infile.read()
             
         # Replace all instances of %ClipInstancePath%
+        # This placeholder is used in XDC files to indicate where the CLIP
+        # will be instantiated in the FPGA design hierarchy
         updated_content = content.replace('%ClipInstancePath%', instance_path)
 
+        # Ensure the output directory exists
         os.makedirs(os.path.dirname(long_output_csv_path), exist_ok=True)
 
         # Write the updated content to the output file
@@ -310,6 +374,14 @@ def process_constraint_file(input_xml_path, output_folder, instance_path):
 def generate_clip_to_window_signals(input_xml_path, output_vhdl_path):
     """
     Generate VHDL signal declarations for CLIP signals to connect to Window component.
+    
+    This function:
+    1. Extracts signal information from the CLIP XML
+    2. Maps LabVIEW data types to appropriate VHDL types
+    3. Generates VHDL signal declarations with comments
+    
+    These declarations can then be used in the top-level VHDL design to
+    connect the CLIP to the Window component.
     
     Args:
         input_xml_path: Path to the CLIP XML file
@@ -385,7 +457,16 @@ def generate_clip_to_window_signals(input_xml_path, output_vhdl_path):
 
 def map_lv_type_to_vhdl(lv_type):
     """
-    Map LabVIEW data type to VHDL data type
+    Map LabVIEW data type to VHDL data type.
+    
+    Converts LabVIEW data types (like U32, Boolean, FXP) to their
+    equivalent VHDL representations (std_logic, std_logic_vector).
+    
+    The mapping rules are:
+    - Boolean -> std_logic
+    - Integer types (U8-U64, I8-I64) -> std_logic_vector with appropriate width
+    - Fixed-point -> std_logic_vector with width from WordLength
+    - Arrays -> std_logic_vector with width = element_width * size
     
     Args:
         lv_type: LabVIEW data type from XML
