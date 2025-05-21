@@ -533,10 +533,13 @@ def main():
     try:
         # Load configuration
         config = load_config()
+
+        # Handle long paths on Windows - fixes path length limitations
+        long_input_xml_path = common.handle_long_path(config.input_xml_path)
         
         # Process XML
         process_clip_xml(
-            config.input_xml_path, 
+            long_input_xml_path, 
             config.output_csv_path
         )
         
@@ -556,7 +559,7 @@ def main():
             
         # Generate CLIP to Window signal definitions
         generate_clip_to_window_signals(
-            config.input_xml_path,
+            long_input_xml_path,
             config.clip_to_window_signal_definitions
         )
             
