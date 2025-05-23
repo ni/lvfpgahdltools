@@ -84,7 +84,7 @@ def load_config(config_path=None):
     # Resolve paths from the configuration settings
     # This converts relative paths to absolute paths based on the current working directory
     files.input_xml_path = common.resolve_path(settings['CLIPXML'])
-    files.output_csv_path = common.resolve_path(settings['CustomSignalsCSV'])
+    files.output_csv_path = common.resolve_path(settings['LVTargetBoardIO'])
     files.clip_hdl_path = common.resolve_path(settings['CLIPHDLTop'])
     files.clip_inst_example_path = common.resolve_path(settings['CLIPInstantiationExample'])
     files.clip_instance_path = settings['CLIPInstancePath'] # This is a HDL hierarchy path, not a file path
