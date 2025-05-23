@@ -85,3 +85,17 @@ Summary of the inputs/outputs of that script:
 ![Migrate CLIP Files](docs/migrate_clip_files.png)
 
 ## Generate LV Target Support
+The GitHub FPGA targets can be exported to a LabVIEW FPGA target plug-in.  These plug-ins allow the customized FPGA target to be extended and bitfile built in LabVIEW.
+
+From the target folder, run:
+> genlvtargetsupport.bat
+
+This script uses the LVFPGATargetSettings section of the projectsettings.ini file.
+
+It takes the LVTargetBoardIO CSV file as an input and generates:
+* TheWindow.vhd - an HDL stub file that contains the IO defined in the LVTargetBoardIO file.  The script takes TheWindow.vhd.mako template and processes it depending on the IncludeCLIPSocket and IncludeLVTargetBoardIO settings.
+* XML files - the output XML files defined in the projectsettings.ini file are generated based on the LVTargetBoardIO, IncludeCLIPSocket and IncludeLVTargetBoardIO.  These XML files are used by LabVIEW FPGA to expose the desired IO and clocks of the custom FPGA target.
+
+This script is run automatically as part of createvivadoproject.bat to generate TheWindow.vhd stub that Vivado needs to synthesize.
+
+<i>NOTE - This workflow is not complete.  It does not yet generate everything needed to make a working LV FPGA plug-in.  It's partial implementation is needed so that we can generate TheWindow.vhd stub for Vivado synthesis.  For now, it is only used automatically as part of createvivadoproject.bat</i>
