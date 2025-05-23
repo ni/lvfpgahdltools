@@ -109,7 +109,7 @@ def load_config(config_path=None):
     settings = config['LVFPGATargetSettings']
     
     # Load path settings
-    files.custom_signals_csv = common.resolve_path(settings.get('CustomSignalsCSV'))
+    files.custom_signals_csv = common.resolve_path(settings.get('LVTargetBoardIO'))
     files.boardio_output = common.resolve_path(settings.get('BoardIOXML'))
     files.clock_output = common.resolve_path(settings.get('ClockXML'))
     files.window_vhdl_template = common.resolve_path(settings.get('WindowVhdlTemplate'))
@@ -119,8 +119,8 @@ def load_config(config_path=None):
     files.target_xml_output = common.resolve_path(settings.get('TargetXMLOutput'))
     
     # Load boolean settings
-    files.include_clip_socket_ports = parse_bool(settings.get('IncludeCLIPSocketInTarget'), True)
-    files.include_custom_io = parse_bool(settings.get('IncludeCustomIOInTarget'), True)
+    files.include_clip_socket_ports = parse_bool(settings.get('IncludeCLIPSocket'), True)
+    files.include_custom_io = parse_bool(settings.get('IncludeLVTargetBoardIO'), True)
     
     # Verify required paths
     required_fields = [
