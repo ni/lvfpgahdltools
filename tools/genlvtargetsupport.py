@@ -24,6 +24,7 @@ from xml.dom.minidom import parseString # For pretty-formatted XML output
 from dataclasses import dataclass      # For type-safe configuration storage
 import configparser                    # For reading INI configuration files
 import common                          # For shared utilities across tools
+import shutil                          # For file copying operations
 
 # Constants
 BOARDIO_WRAPPER_NAME = "BoardIO"       # Top-level wrapper name in the BoardIO XML hierarchy
@@ -62,10 +63,14 @@ class FileConfiguration:
     window_vhdl_template: str    # Template for TheWindow.vhd generation
     window_vhdl_output: str      # Output path for TheWindow.vhd
     window_instantiation_example: str  # Path for instantiation example output
-    target_xml_template: str     # Template for target XML generation
-    target_xml_output: str       # Output path for target XML
+    target_xml_templates: list     # Templates for target XML generation
+    target_xml_output_folder: str       # Output path for target XML
     include_clip_socket_ports: bool  # Whether to include CLIP socket ports in generated files
     include_custom_io: bool      # Whether to include custom I/O in generated files
+    lv_target_plugin_files: list  # List of plugin files to be included in target
+    lv_target_plugin_folder: str  # Destination folder for plugin installation
+    lv_target_name: str          # Name of the LabVIEW FPGA target (e.g., "PXIe-7903")
+    lv_target_guid: str          # GUID for the LabVIEW FPGA target
 
 
 def parse_bool(value, default=False):
@@ -95,10 +100,14 @@ def load_config(config_path=None):
         window_vhdl_template=None,
         window_vhdl_output=None,
         window_instantiation_example=None,
-        target_xml_template=None,
-        target_xml_output=None,
+        target_xml_templates=[],
+        target_xml_output_folder=None,
         include_clip_socket_ports=True,
-        include_custom_io=True
+        include_custom_io=True,
+        lv_target_plugin_files=[],
+        lv_target_plugin_folder=None,
+        lv_target_name=None,
+        lv_target_guid=None
     )
     
     # Load settings if section exists
@@ -108,33 +117,36 @@ def load_config(config_path=None):
         
     settings = config['LVFPGATargetSettings']
     
-    # Load path settings
+    # Load settings
     files.custom_signals_csv = common.resolve_path(settings.get('LVTargetBoardIO'))
     files.boardio_output = common.resolve_path(settings.get('BoardIOXML'))
     files.clock_output = common.resolve_path(settings.get('ClockXML'))
     files.window_vhdl_template = common.resolve_path(settings.get('WindowVhdlTemplate'))
     files.window_vhdl_output = common.resolve_path(settings.get('WindowVhdlOutput'))
     files.window_instantiation_example = common.resolve_path(settings.get('WindowInstantiationExample'))
-    files.target_xml_template = common.resolve_path(settings.get('TargetXMLTemplate'))
-    files.target_xml_output = common.resolve_path(settings.get('TargetXMLOutput'))
-    
-    # Load boolean settings
+    files.target_xml_output_folder = common.resolve_path(settings.get('TargetXMLOutputFolder'))
+    files.lv_target_name = settings.get('LVTargetName')
+    files.lv_target_guid = settings.get('LVTargetGUID')
+    files.lv_target_plugin_folder = common.resolve_path(settings.get('LVTargetPluginFolder'))
     files.include_clip_socket_ports = parse_bool(settings.get('IncludeCLIPSocket'), True)
     files.include_custom_io = parse_bool(settings.get('IncludeLVTargetBoardIO'), True)
-    
-    # Verify required paths
-    required_fields = [
-        'custom_signals_csv', 'boardio_output', 'clock_output',
-        'window_vhdl_template', 'window_vhdl_output', 'window_instantiation_example', 
-        'target_xml_template', 'target_xml_output'
-    ]
-    
-    missing = [field for field in required_fields if getattr(files, field) is None]
-    if missing:
-        missing_settings = [field.replace('_', ' ').title().replace(' ', '') for field in missing]
-        print(f"Error: Missing required settings in INI file: {', '.join(missing_settings)}")
-        sys.exit(1)
-    
+
+    # Load plugin settings - handle multiple files
+    plugin_files = settings.get('LVTargetPluginFiles')
+    for plugin_file in plugin_files.strip().split('\n'):
+        plugin_file = plugin_file.strip()
+        if plugin_file:
+            abs_plugin_file = common.resolve_path(plugin_file)
+            files.lv_target_plugin_files.append(abs_plugin_file)
+
+    # Load XML templates
+    template_files = settings.get('TargetXMLTemplates')
+    for template_file in template_files.strip().split('\n'):
+        template_file = template_file.strip()
+        if template_file:
+            abs_template_file = common.resolve_path(template_file)
+            files.target_xml_templates.append(abs_template_file)  
+   
     return files
 
 
@@ -416,48 +428,69 @@ def generate_vhdl_from_csv(csv_path, template_path, output_path, include_clip_so
         sys.exit(1)
 
 
-def generate_target_xml(template_path, output_path, include_clip_socket, include_custom_io, boardio_path, clock_path):
+def generate_target_xml(template_paths, output_folder, include_clip_socket, include_custom_io, 
+                       boardio_path, clock_path, lv_target_name, lv_target_guid):
     """
-    Generate Target XML from Mako template
+    Generate Target XML files from multiple Mako templates
     
-    Creates the target XML file that defines the LabVIEW FPGA target configuration.
-    This XML file references the BoardIO and Clock XML files and contains target-specific
-    settings for compilation and deployment.
+    Creates target XML files that define the LabVIEW FPGA target configuration.
+    This function processes a list of templates, rendering each with the same parameters.
     
     Args:
-        template_path (str): Path to the Mako template for target XML
-        output_path (str): Path where the target XML will be written
+        template_paths (list): List of paths to Mako templates for target XML
+        output_folder (str): Folder where the target XML files will be written
         include_clip_socket (bool): Whether to include CLIP socket ports
         include_custom_io (bool): Whether to include custom I/O
         boardio_path (str): Path to the BoardIO XML (for filename extraction)
         clock_path (str): Path to the Clock XML (for filename extraction)
+        lv_target_name (str): Name of the LabVIEW FPGA target
+        lv_target_guid (str): GUID for the LabVIEW FPGA target
         
     Raises:
         SystemExit: If an error occurs during XML generation
     """
     try:
-        # Extract filenames
+        # Extract filenames for BoardIO and Clock
         boardio_filename = os.path.basename(boardio_path)
         clock_filename = os.path.basename(clock_path)
         
-        # Render template
-        with open(template_path, 'r') as f:
-            template = Template(f.read())
+        # Ensure output directory exists
+        os.makedirs(output_folder, exist_ok=True)
             
-        output_text = template.render(
-            include_clip_socket=include_clip_socket,
-            include_custom_io=include_custom_io,
-            custom_boardio=boardio_filename,
-            custom_clock=clock_filename
-        )
-        
-        # Write output file
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, 'w') as f:
-            f.write(output_text)
+        # Process each template
+        for template_path in template_paths:              
+            # Get base filename from template, preserving extension
+            template_basename = os.path.basename(template_path)
+            # Remove the .mako extension to get the output filename
+            output_filename = template_basename[:-5]
+            print(f"Processing template: {template_path} -> {output_filename}")
+          
+            # Form full output path
+            current_output_path = os.path.join(output_folder, output_filename)
             
-        print(f"Generated Target XML file: {output_path}")
-            
+            # Render template
+            try:
+                with open(template_path, 'r') as f:
+                    template = Template(f.read())
+                    
+                output_text = template.render(
+                    include_clip_socket=include_clip_socket,
+                    include_custom_io=include_custom_io,
+                    custom_boardio=boardio_filename,
+                    custom_clock=clock_filename,
+                    lv_target_name=lv_target_name,
+                    lv_target_guid=lv_target_guid
+                )
+                
+                # Write output file
+                with open(current_output_path, 'w') as f:
+                    f.write(output_text)
+                    
+                print(f"Generated Target XML file: {current_output_path}")
+                
+            except Exception as e:
+                print(f"Error processing template {template_path}: {e}")
+                
     except Exception as e:
         print(f"Error generating Target XML: {e}")
         sys.exit(1)
@@ -491,6 +524,48 @@ def generate_vhdl_instantiation_example(vhdl_path, output_path):
         sys.exit(1)
 
 
+def create_lv_target_plugin(plugin_files, plugin_folder):
+    """
+    Copy LabVIEW target plugin files to the plugin  folder
+    
+    This function copies all plugin files specified in the configuration to 
+    the target plugin folder, enabling custom plugins to be installed where
+    LabVIEW can find them at runtime.
+    
+    Args:
+        plugin_files (list): List of paths to plugin files to copy
+        plugin_folder (str): Destination folder where plugins will be installed
+        
+    Returns:
+        bool: True if all copies were successful, False otherwise
+    """
+
+    # Clean plugin folder
+    shutil.rmtree(plugin_folder, ignore_errors=True)
+
+    # Create destination folder if it doesn't exist
+    os.makedirs(plugin_folder, exist_ok=True)
+    print(f"Installing plugins to {plugin_folder}")
+    
+    for plugin_file in plugin_files:
+        if not os.path.exists(plugin_file):
+            print(f"Warning: Plugin file not found: {plugin_file}")
+            continue         
+        # Get the filename without path
+        filename = os.path.basename(plugin_file)
+        destination = os.path.join(plugin_folder, filename)
+        shutil.copy2(plugin_file, destination)
+
+    source_deps_folder = os.path.join(os.getcwd(), "objects/gathereddeps")
+    dest_deps_folder = os.path.join(plugin_folder, "FpgaFiles")
+    os.makedirs(dest_deps_folder, exist_ok=True)
+    
+    # Copy each file from gathereddeps to FpgaFiles folder
+    for filename in os.listdir(source_deps_folder):
+        source_file = os.path.join(source_deps_folder, filename)
+        dest_file = os.path.join(dest_deps_folder, filename)
+        shutil.copy2(source_file, dest_file) 
+
 def gen_lv_target_support():
     """
     Generate target support files
@@ -501,6 +576,7 @@ def gen_lv_target_support():
     3. Generating the Window VHDL interface component
     4. Creating an instantiation example
     5. Generating the target XML file
+    6. Installing plugin files to the destination folder
     
     This is the main function that coordinates all generator activities
     and is called by both the main() function and external scripts.
@@ -535,12 +611,19 @@ def gen_lv_target_support():
         )
         
         generate_target_xml(
-            config.target_xml_template, 
-            config.target_xml_output,
+            config.target_xml_templates, 
+            config.target_xml_output_folder,
             config.include_clip_socket_ports,
             config.include_custom_io,
             config.boardio_output, 
-            config.clock_output
+            config.clock_output,
+            config.lv_target_name,
+            config.lv_target_guid
+        )
+        
+        create_lv_target_plugin(
+            config.lv_target_plugin_files,
+            config.lv_target_plugin_folder
         )
         
         print("Target support file generation complete.")
