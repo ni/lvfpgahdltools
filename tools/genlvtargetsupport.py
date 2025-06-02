@@ -542,17 +542,31 @@ def copy_fpgafiles(hdl_file_lists, plugin_folder):
     # Create the destination folder with long path support
     dest_deps_folder = os.path.join(plugin_folder, "FpgaFiles")
     os.makedirs(dest_deps_folder, exist_ok=True)
+
+    # These files are provided by LV FPGA during the compile worker compile so we must not
+    # include them in the custom target plugin
+    skip_files = [
+        "fpgaDigitalDesigns",
+        "CommonCores",
+        "Dram2DP",
+        "nidmaip",
+        "lvgen"
+    ]
     
-    for file in file_list:      
-        file = os.path.abspath(file)
-        file = common.handle_long_path(file)
-        target_path = os.path.join(dest_deps_folder, os.path.basename(file))
-        if os.path.exists(target_path):
-            os.chmod(target_path, 0o777)  # Make the file writable
-        try:
-            shutil.copy2(file, target_path)
-        except Exception as e:
-            raise IOError(f"Error copying file '{file}' to '{target_path}': {e}")
+    for file in file_list:
+        # Check if any skip_files text appears in the file path
+        should_skip = any(skip_text in file for skip_text in skip_files)
+        
+        if not should_skip:     
+            file = os.path.abspath(file)
+            file = common.handle_long_path(file)
+            target_path = os.path.join(dest_deps_folder, os.path.basename(file))
+            if os.path.exists(target_path):
+                os.chmod(target_path, 0o777)  # Make the file writable
+            try:
+                shutil.copy2(file, target_path)
+            except Exception as e:
+                raise IOError(f"Error copying file '{file}' to '{target_path}': {e}")
 
 def gen_lv_target_support():
     """
