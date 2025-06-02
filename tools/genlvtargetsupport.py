@@ -25,6 +25,7 @@ from dataclasses import dataclass      # For type-safe configuration storage
 import configparser                    # For reading INI configuration files
 import common                          # For shared utilities across tools
 import shutil                          # For file copying operations
+import re                              # For regular expression operations
 
 # Constants
 BOARDIO_WRAPPER_NAME = "BoardIO"       # Top-level wrapper name in the BoardIO XML hierarchy
@@ -546,16 +547,22 @@ def copy_fpgafiles(hdl_file_lists, plugin_folder):
     # These files are provided by LV FPGA during the compile worker compile so we must not
     # include them in the custom target plugin
     skip_files = [
-        "fpgaDigitalDesigns",
-        "CommonCores",
-        "Dram2DP",
-        "nidmaip",
-        "lvgen"
+        "/lvgen/",
+        "/DmaPort/",
+        "(.*)PkgNi(.*)\.vhd",
+        "/PkgCommunicationInterface.vhd$",
+        "(.*)Dram2DP(.*)\.vhd",
+        "(.*)DFlop(.*)\.vhd",
+        "(.*)DoubleSync(.*)\.vhd",
+        "(.*)DualPortRAM(.*)\.vhd",
+        "(.*)GenDataValid\.vhd",
+        "(.*)PkgAttributes\.vhd",
+        "(.*)SingleCl(.*)\.vhd"
     ]
-    
+
     for file in file_list:
         # Check if any skip_files text appears in the file path
-        should_skip = any(skip_text in file for skip_text in skip_files)
+        should_skip = any(re.search(skip_pattern, file) for skip_pattern in skip_files)
         
         if not should_skip:     
             file = os.path.abspath(file)
