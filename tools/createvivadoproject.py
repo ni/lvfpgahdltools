@@ -24,80 +24,8 @@ import subprocess
 from collections import defaultdict
 from enum import Enum
 import genlvtargetsupport
+import common 
 
-
-def fix_file_slashes(path):
-    """
-    Converts backslashes to forward slashes in file paths.
-    
-    Vivado and TCL scripts work better with forward slashes in paths,
-    regardless of platform. This ensures consistent path formatting.
-    
-    Args:
-        path (str): File path potentially containing backslashes
-        
-    Returns:
-        str: Path with all backslashes converted to forward slashes
-    """
-    return path.replace('\\', '/')
-
-def get_vivado_project_files(config):
-    """
-    Processes the configuration to generate the list of files for the Vivado project.
-    
-    This is the main function for file gathering that:
-    1. Reads file list references from the config file
-    2. Processes each list to collect FPGA design files
-    3. Identifies and reports duplicate files
-    4. Copies dependency files to a centralized location
-    5. Returns a sorted, normalized list of all required files
-    
-    Args:
-        config (ConfigParser): Parsed configuration object
-        
-    Returns:
-        list: Complete list of files for the Vivado project
-        
-    Raises:
-        FileNotFoundError: If a specified file list path doesn't exist
-        ValueError: If duplicate files are found
-    """
-    # Get the lists of Vivado project files from the configuration
-    lists_of_files = config.get('VivadoProjectSettings', 'VivadoProjectFilesLists').split()
-    
-    # Combine all file lists into a single file_list
-    file_list = []
-    for file_list_path in lists_of_files:
-        if os.path.exists(file_list_path):
-            with open(file_list_path, 'r') as f:
-                for line in f:
-                    line = line.strip()
-                    if line and not line.startswith('#'):  # Skip empty lines and comments
-                        if os.path.isdir(line):
-                            print(f"Directory found: {line}")
-                            # This is a directory, add all relevant files recursively
-                            for root, _, files in os.walk(line):
-                                for file in files:
-                                    # Filter for relevant file types
-                                    if file.endswith(('.vhd', '.v', '.sv', '.xdc', '.edf', '.dcp', '.xci')):
-                                        file_path = os.path.join(root, file)
-                                        file_list.append(fix_file_slashes(file_path))   
-                        else:
-                            file_list.append(fix_file_slashes(line))
-        else:
-            raise FileNotFoundError(f"File list path '{file_list_path}' does not exist.")
-        
-    # Check for duplicate file names and log them
-    find_and_log_duplicates(file_list)
-
-    # Copy dependency files to the gathereddeps folder
-    # Returns the file list with the files from githubdeps having new locations in gathereddeps
-    file_list = copy_deps_files(file_list)
-
-    # Sort the final file list
-    file_list = sorted(file_list)
-  
-    return file_list
 
 def has_spaces(file_path):
     """
@@ -348,7 +276,15 @@ def create_project(mode: ProjectMode, config):
     update_proj_template_path = os.path.join(current_dir, 'TCL/UpdateProjectFilesTemplate.tcl')
     update_proj_path = os.path.join(current_dir, 'objects/TCL/UpdateProjectFiles.tcl')    
     
-    file_list = get_vivado_project_files(config)
+    # Get the lists of Vivado project files from the configuration
+    lists_of_files = config.get('VivadoProjectSettings', 'VivadoProjectFilesLists').split()
+    file_list = common.get_vivado_project_files(lists_of_files)
+    # Check for duplicate file names and log them
+    find_and_log_duplicates(file_list)
+    # Copy dependency files to the gathereddeps folder
+    # Returns the file list with the files from githubdeps having new locations in gathereddeps
+    file_list = copy_deps_files(file_list)
+
     add_files = get_TCL_add_files_text(file_list, os.path.join(current_dir, 'TCL'))
 
     project_name = config.get('VivadoProjectSettings', 'VivadoProjectName')

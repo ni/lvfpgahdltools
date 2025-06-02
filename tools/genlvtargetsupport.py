@@ -64,13 +64,12 @@ class FileConfiguration:
     window_vhdl_output: str      # Output path for TheWindow.vhd
     window_instantiation_example: str  # Path for instantiation example output
     target_xml_templates: list     # Templates for target XML generation
-    target_xml_output_folder: str       # Output path for target XML
     include_clip_socket_ports: bool  # Whether to include CLIP socket ports in generated files
     include_custom_io: bool      # Whether to include custom I/O in generated files
-    lv_target_plugin_files: list  # List of plugin files to be included in target
-    lv_target_plugin_folder: str  # Destination folder for plugin installation
+    lv_target_plugin_folder: str  # Destination folder for plugin generation
     lv_target_name: str          # Name of the LabVIEW FPGA target (e.g., "PXIe-7903")
     lv_target_guid: str          # GUID for the LabVIEW FPGA target
+    hdl_file_lists: list         # List of HDL file list paths for Vivado project generation
 
 
 def parse_bool(value, default=False):
@@ -101,20 +100,14 @@ def load_config(config_path=None):
         window_vhdl_output=None,
         window_instantiation_example=None,
         target_xml_templates=[],
-        target_xml_output_folder=None,
         include_clip_socket_ports=True,
         include_custom_io=True,
-        lv_target_plugin_files=[],
         lv_target_plugin_folder=None,
         lv_target_name=None,
-        lv_target_guid=None
+        lv_target_guid=None,
+        hdl_file_lists=[]
     )
-    
-    # Load settings if section exists
-    if 'LVFPGATargetSettings' not in config:
-        print(f"Error: LVFPGATargetSettings section missing in {config_path}")
-        sys.exit(1)
-        
+          
     settings = config['LVFPGATargetSettings']
     
     # Load settings
@@ -124,20 +117,11 @@ def load_config(config_path=None):
     files.window_vhdl_template = common.resolve_path(settings.get('WindowVhdlTemplate'))
     files.window_vhdl_output = common.resolve_path(settings.get('WindowVhdlOutput'))
     files.window_instantiation_example = common.resolve_path(settings.get('WindowInstantiationExample'))
-    files.target_xml_output_folder = common.resolve_path(settings.get('TargetXMLOutputFolder'))
     files.lv_target_name = settings.get('LVTargetName')
     files.lv_target_guid = settings.get('LVTargetGUID')
     files.lv_target_plugin_folder = common.resolve_path(settings.get('LVTargetPluginFolder'))
     files.include_clip_socket_ports = parse_bool(settings.get('IncludeCLIPSocket'), True)
     files.include_custom_io = parse_bool(settings.get('IncludeLVTargetBoardIO'), True)
-
-    # Load plugin settings - handle multiple files
-    plugin_files = settings.get('LVTargetPluginFiles')
-    for plugin_file in plugin_files.strip().split('\n'):
-        plugin_file = plugin_file.strip()
-        if plugin_file:
-            abs_plugin_file = common.resolve_path(plugin_file)
-            files.lv_target_plugin_files.append(abs_plugin_file)
 
     # Load XML templates
     template_files = settings.get('TargetXMLTemplates')
@@ -145,7 +129,16 @@ def load_config(config_path=None):
         template_file = template_file.strip()
         if template_file:
             abs_template_file = common.resolve_path(template_file)
-            files.target_xml_templates.append(abs_template_file)  
+            files.target_xml_templates.append(abs_template_file)
+    
+    # Load HDL file lists from VivadoProjectSettings section
+    vivado_settings = config['VivadoProjectSettings']
+    hdl_file_lists = vivado_settings.get('VivadoProjectFilesLists')
+    for file_list in hdl_file_lists.strip().split():
+        file_list = file_list.strip()
+        if file_list:
+            abs_file_list = common.resolve_path(file_list)
+            files.hdl_file_lists.append(abs_file_list)
    
     return files
 
@@ -524,47 +517,42 @@ def generate_vhdl_instantiation_example(vhdl_path, output_path):
         sys.exit(1)
 
 
-def create_lv_target_plugin(plugin_files, plugin_folder):
+def copy_fpgafiles(hdl_file_lists, plugin_folder):
     """
-    Copy LabVIEW target plugin files to the plugin  folder
+    Copy HDL files to the FPGA files destination folder
     
-    This function copies all plugin files specified in the configuration to 
-    the target plugin folder, enabling custom plugins to be installed where
-    LabVIEW can find them at runtime.
+    This function:
+    1. Gets the list of HDL files from the project file lists
+    2. Creates the destination folder structure
+    3. Copies each HDL file to the destination, handling long paths on Windows
     
     Args:
-        plugin_files (list): List of paths to plugin files to copy
-        plugin_folder (str): Destination folder where plugins will be installed
-        
-    Returns:
-        bool: True if all copies were successful, False otherwise
+        hdl_file_lists (list): List of HDL file list paths
+        plugin_folder (str): Destination folder where the plugin will be installed
     """
+    if not hdl_file_lists:
+        print("No HDL file lists specified - skipping HDL file installation")
+        return
+        
+    # Get all HDL files from file lists
+    print(f"Reading HDL file lists from: {hdl_file_lists}")
+    file_list = common.get_vivado_project_files(hdl_file_lists)
+    print(f"Found {len(file_list)} files in HDL file lists")
 
-    # Clean plugin folder
-    shutil.rmtree(plugin_folder, ignore_errors=True)
-
-    # Create destination folder if it doesn't exist
-    os.makedirs(plugin_folder, exist_ok=True)
-    print(f"Installing plugins to {plugin_folder}")
-    
-    for plugin_file in plugin_files:
-        if not os.path.exists(plugin_file):
-            print(f"Warning: Plugin file not found: {plugin_file}")
-            continue         
-        # Get the filename without path
-        filename = os.path.basename(plugin_file)
-        destination = os.path.join(plugin_folder, filename)
-        shutil.copy2(plugin_file, destination)
-
-    source_deps_folder = os.path.join(os.getcwd(), "objects/gathereddeps")
+    # Create the destination folder with long path support
     dest_deps_folder = os.path.join(plugin_folder, "FpgaFiles")
     os.makedirs(dest_deps_folder, exist_ok=True)
     
-    # Copy each file from gathereddeps to FpgaFiles folder
-    for filename in os.listdir(source_deps_folder):
-        source_file = os.path.join(source_deps_folder, filename)
-        dest_file = os.path.join(dest_deps_folder, filename)
-        shutil.copy2(source_file, dest_file) 
+    for file in file_list:      
+        file = os.path.abspath(file)
+        file = common.handle_long_path(file)
+        target_path = os.path.join(dest_deps_folder, os.path.basename(file))
+        if os.path.exists(target_path):
+            os.chmod(target_path, 0o777)  # Make the file writable
+        try:
+            shutil.copy2(file, target_path)
+        except Exception as e:
+            raise IOError(f"Error copying file '{file}' to '{target_path}': {e}")
 
 def gen_lv_target_support():
     """
@@ -588,8 +576,8 @@ def gen_lv_target_support():
         # Load configuration
         config = load_config()
         
-        # Generate all files
-        print(f"Generating support files from {config.custom_signals_csv}...")
+        # Clean fpga plugins folder
+        shutil.rmtree(config.lv_target_plugin_folder, ignore_errors=True)
         
         generate_xml_from_csv(
             config.custom_signals_csv, 
@@ -612,7 +600,7 @@ def gen_lv_target_support():
         
         generate_target_xml(
             config.target_xml_templates, 
-            config.target_xml_output_folder,
+            config.lv_target_plugin_folder,
             config.include_clip_socket_ports,
             config.include_custom_io,
             config.boardio_output, 
@@ -621,8 +609,8 @@ def gen_lv_target_support():
             config.lv_target_guid
         )
         
-        create_lv_target_plugin(
-            config.lv_target_plugin_files,
+        copy_fpgafiles(
+            config.hdl_file_lists,
             config.lv_target_plugin_folder
         )
         
