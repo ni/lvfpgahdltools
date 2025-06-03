@@ -21,8 +21,6 @@ import sys                             # For command-line arguments and error ha
 import xml.etree.ElementTree as ET     # For XML generation and manipulation
 from mako.template import Template     # For template-based file generation
 from xml.dom.minidom import parseString # For pretty-formatted XML output
-from dataclasses import dataclass      # For type-safe configuration storage
-import configparser                    # For reading INI configuration files
 import common                          # For shared utilities across tools
 import shutil                          # For file copying operations
 import re                              # For regular expression operations
@@ -49,99 +47,6 @@ DATA_TYPE_PROTOTYPES = {
     "I32": DOCUMENT_ROOT_PREFIX + "i32Digital{direction}",       # Signed 32-bit integer
     "I64": DOCUMENT_ROOT_PREFIX + "i64Digital{direction}",       # Signed 64-bit integer
 }
-
-@dataclass
-class FileConfiguration:
-    """
-    Configuration file paths and settings for target support generation
-    
-    This class centralizes all file paths and boolean settings used throughout
-    the generation process, ensuring consistent configuration access and validation.
-    """
-    custom_signals_csv: str      # Path to CSV containing signal definitions
-    boardio_output: str          # Path where BoardIO XML will be written
-    clock_output: str            # Path where Clock XML will be written
-    window_vhdl_template: str    # Template for TheWindow.vhd generation
-    window_vhdl_output: str      # Output path for TheWindow.vhd
-    window_instantiation_example: str  # Path for instantiation example output
-    target_xml_templates: list     # Templates for target XML generation
-    include_clip_socket_ports: bool  # Whether to include CLIP socket ports in generated files
-    include_custom_io: bool      # Whether to include custom I/O in generated files
-    lv_target_plugin_folder: str  # Destination folder for plugin generation
-    lv_target_name: str          # Name of the LabVIEW FPGA target (e.g., "PXIe-7903")
-    lv_target_guid: str          # GUID for the LabVIEW FPGA target
-    hdl_file_lists: list         # List of HDL file list paths for Vivado project generation
-
-
-def parse_bool(value, default=False):
-    """Parse string to boolean"""
-    if value is None:
-        return default
-    return value.lower() in ('true', 'yes', '1')
-
-
-def load_config(config_path=None):
-    """Load configuration from INI file"""
-    if config_path is None:
-        config_path = os.path.join(os.getcwd(), "projectsettings.ini")
-    
-    if not os.path.exists(config_path):
-        print(f"Error: Configuration file {config_path} not found.")
-        sys.exit(1)
-        
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    
-    # Default configuration
-    files = FileConfiguration(
-        custom_signals_csv=None,
-        boardio_output=None,
-        clock_output=None,
-        window_vhdl_template=None,
-        window_vhdl_output=None,
-        window_instantiation_example=None,
-        target_xml_templates=[],
-        include_clip_socket_ports=True,
-        include_custom_io=True,
-        lv_target_plugin_folder=None,
-        lv_target_name=None,
-        lv_target_guid=None,
-        hdl_file_lists=[]
-    )
-          
-    settings = config['LVFPGATargetSettings']
-    
-    # Load settings
-    files.custom_signals_csv = common.resolve_path(settings.get('LVTargetBoardIO'))
-    files.boardio_output = common.resolve_path(settings.get('BoardIOXML'))
-    files.clock_output = common.resolve_path(settings.get('ClockXML'))
-    files.window_vhdl_template = common.resolve_path(settings.get('WindowVhdlTemplate'))
-    files.window_vhdl_output = common.resolve_path(settings.get('WindowVhdlOutput'))
-    files.window_instantiation_example = common.resolve_path(settings.get('WindowInstantiationExample'))
-    files.lv_target_name = settings.get('LVTargetName')
-    files.lv_target_guid = settings.get('LVTargetGUID')
-    files.lv_target_plugin_folder = common.resolve_path(settings.get('LVTargetPluginFolder'))
-    files.include_clip_socket_ports = parse_bool(settings.get('IncludeCLIPSocket'), True)
-    files.include_custom_io = parse_bool(settings.get('IncludeLVTargetBoardIO'), True)
-
-    # Load XML templates
-    template_files = settings.get('TargetXMLTemplates')
-    for template_file in template_files.strip().split('\n'):
-        template_file = template_file.strip()
-        if template_file:
-            abs_template_file = common.resolve_path(template_file)
-            files.target_xml_templates.append(abs_template_file)
-    
-    # Load HDL file lists from VivadoProjectSettings section
-    vivado_settings = config['VivadoProjectSettings']
-    hdl_file_lists = vivado_settings.get('VivadoProjectFilesLists')
-    for file_list in hdl_file_lists.strip().split():
-        file_list = file_list.strip()
-        if file_list:
-            abs_file_list = common.resolve_path(file_list)
-            files.hdl_file_lists.append(abs_file_list)
-   
-    return files
 
 
 def write_tree_to_xml(root, output_file):
@@ -518,7 +423,7 @@ def generate_vhdl_instantiation_example(vhdl_path, output_path):
         sys.exit(1)
 
 
-def copy_fpgafiles(hdl_file_lists, plugin_folder):
+def copy_fpgafiles(hdl_file_lists, plugin_folder, target_family):
     """
     Copy HDL files to the FPGA files destination folder
     
@@ -530,6 +435,7 @@ def copy_fpgafiles(hdl_file_lists, plugin_folder):
     Args:
         hdl_file_lists (list): List of HDL file list paths
         plugin_folder (str): Destination folder where the plugin will be installed
+        exclude_script_path (str): Path to script containing exclude file patterns
     """
     if not hdl_file_lists:
         print("No HDL file lists specified - skipping HDL file installation")
@@ -544,27 +450,28 @@ def copy_fpgafiles(hdl_file_lists, plugin_folder):
     dest_deps_folder = os.path.join(plugin_folder, "FpgaFiles")
     os.makedirs(dest_deps_folder, exist_ok=True)
 
-    # These files are provided by LV FPGA during the compile worker compile so we must not
-    # include them in the custom target plugin
-    skip_files = [
-        "/lvgen/",
-        "/DmaPort/",
-        "(.*)PkgNi(.*)\.vhd",
-        "/PkgCommunicationInterface.vhd$",
-        "(.*)Dram2DP(.*)\.vhd",
-        "(.*)DFlop(.*)\.vhd",
-        "(.*)DoubleSync(.*)\.vhd",
-        "(.*)DualPortRAM(.*)\.vhd",
-        "(.*)GenDataValid\.vhd",
-        "(.*)PkgAttributes\.vhd",
-        "(.*)SingleCl(.*)\.vhd"
-    ]
+    # FlexRIO has a file with regular expressions that is used to specify which files
+    # should not be included in the LV FPGA target plugin.  Other product families like
+    # cRIO may have a different implementation for this functionality so we look at the 
+    # target family to determine if/how we exclude files.
+    exclude_regex_list = []
+    if target_family.lower() == "flexrio":
+        exclude_script_path = common.resolve_path("../lvfpgaexcludefiles.py")
+        # Get skip files from specified script
+        script_dir = os.path.dirname(exclude_script_path)
+        script_name = os.path.basename(exclude_script_path).split('.')[0]
+        sys.path.insert(0, script_dir)
+        exclude_module = __import__(script_name)
+        exclude_regex_list = exclude_module.get_exclude_regex_list()
+        sys.path.pop(0)
+    else:
+        raise ValueError(f"Unsupported target family: {target_family}.")
 
     for file in file_list:
         # Check if any skip_files text appears in the file path
-        should_skip = any(re.search(skip_pattern, file) for skip_pattern in skip_files)
+        should_exclude = any(re.search(exclude_pattern, file) for exclude_pattern in exclude_regex_list)
         
-        if not should_skip:     
+        if not should_exclude:     
             file = os.path.abspath(file)
             file = common.handle_long_path(file)
             target_path = os.path.join(dest_deps_folder, os.path.basename(file))
@@ -594,8 +501,8 @@ def gen_lv_target_support():
         SystemExit: If an error occurs during generation
     """
     try:
-        # Load configuration
-        config = load_config()
+        # Load configuration - now using common.load_config()
+        config = common.load_config()
         
         # Clean fpga plugins folder
         shutil.rmtree(config.lv_target_plugin_folder, ignore_errors=True)
@@ -632,7 +539,8 @@ def gen_lv_target_support():
         
         copy_fpgafiles(
             config.hdl_file_lists,
-            config.lv_target_plugin_folder
+            config.lv_target_plugin_folder,
+            config.target_family
         )
         
         print("Target support file generation complete.")

@@ -17,89 +17,8 @@ import xml.etree.ElementTree as ET
 import os
 import sys
 import csv
-from dataclasses import dataclass
-import configparser
 import traceback
 import common
-
-@dataclass
-class FileConfiguration:
-    """
-    Class to store file paths and configuration for CLIP migration.
-    
-    This dataclass centralizes all file path management and configuration options,
-    making it easier to pass settings between functions and track dependencies.
-    """
-    input_xml_path: str         # Path to source CLIP XML file
-    output_csv_path: str        # Path where CSV signals will be written
-    clip_hdl_path: str          # Path to top-level CLIP HDL file
-    clip_inst_example_path: str # Path where instantiation example will be written
-    clip_instance_path: str     # HDL hierarchy path for CLIP instance (not a file path)
-    clip_xdc_paths: list        # List of paths to XDC constraint files
-    updated_xdc_folder: str     # Folder where updated XDC files will be written
-    clip_to_window_signal_definitions: str  # Path for CLIP-to-Window signal definitions file
-
-
-def load_config(config_path=None):
-    """
-    Load configuration from INI file.
-    
-    Reads settings from the configuration file and creates a FileConfiguration
-    object with resolved paths. The function handles both relative and absolute 
-    paths, ensuring they're correctly resolved regardless of the current working directory.
-    
-    Args:
-        config_path: Path to the INI file. If None, searches in the current directory.
-        
-    Returns:
-        FileConfiguration: Object containing all configuration settings
-        
-    Raises:
-        SystemExit: If the configuration file is not found or required settings are missing
-    """
-    if config_path is None:
-        config_path = os.path.join(os.getcwd(), "projectsettings.ini")
-    
-    if not os.path.exists(config_path):
-        print(f"Error: Configuration file {config_path} not found.")
-        sys.exit(1)
-        
-    config = configparser.ConfigParser()
-    config.read(config_path)
-    
-    # Get required settings
-    settings = config['CLIPMigrationSettings']
-     
-    files = FileConfiguration(
-        input_xml_path=None,
-        output_csv_path=None,
-        clip_hdl_path=None,
-        clip_inst_example_path=None,
-        clip_instance_path=None,
-        clip_xdc_paths=[],
-        updated_xdc_folder=None,
-        clip_to_window_signal_definitions=None
-    )   
-
-    # Resolve paths from the configuration settings
-    # This converts relative paths to absolute paths based on the current working directory
-    files.input_xml_path = common.resolve_path(settings['CLIPXML'])
-    files.output_csv_path = common.resolve_path(settings['LVTargetBoardIO'])
-    files.clip_hdl_path = common.resolve_path(settings['CLIPHDLTop'])
-    files.clip_inst_example_path = common.resolve_path(settings['CLIPInstantiationExample'])
-    files.clip_instance_path = settings['CLIPInstancePath'] # This is a HDL hierarchy path, not a file path
-    files.clip_to_window_signal_definitions = common.resolve_path(settings.get('CLIPtoWindowSignalDefinitions'))
-    files.updated_xdc_folder = common.resolve_path(settings['CLIPXDCOutFolder'])
-       
-    # Handle multiple XDC files - split by lines and strip whitespace
-    clip_xdc = settings['CLIPXDCIn']
-    for xdc_file in clip_xdc.strip().split('\n'):
-        xdc_file = xdc_file.strip()
-        if xdc_file:
-            abs_xdc_path = common.resolve_path(xdc_file)
-            files.clip_xdc_paths.append(abs_xdc_path)
-    
-    return files
 
 
 def find_case_insensitive(element, xpath):
@@ -532,7 +451,7 @@ def main():
     """Main program entry point"""
     try:
         # Load configuration
-        config = load_config()
+        config = common.load_config()
 
         # Handle long paths on Windows - fixes path length limitations
         long_input_xml_path = common.handle_long_path(config.input_xml_path)

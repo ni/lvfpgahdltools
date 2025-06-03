@@ -3,9 +3,174 @@
 # SPDX-License-Identifier: MIT
 #
 
+from dataclasses import dataclass
+import configparser
 import os
 import re
+import sys
 import traceback
+
+@dataclass
+class FileConfiguration:
+    """
+    Configuration file paths and settings for target support generation
+    
+    This class centralizes all file paths and boolean settings used throughout
+    the generation process, ensuring consistent configuration access and validation.
+    """
+    # ----- GENERAL SETTINGS -----
+    target_family: str           # Target family (e.g., "FlexRIO")
+    # ----- VIVADO PROJECT SETTINGS -----
+    top_level_entity: str        # Top-level entity name for Vivado project
+    vivado_project_name: str     # Name of the Vivado project (no spaces allowed)
+    vivado_tools_path: str       # Path to Vivado tools
+    hdl_file_lists: list         # List of HDL file list paths for Vivado project generation
+    # ----- LVFPGA TARGET SETTINGS -----
+    custom_signals_csv: str      # Path to CSV containing signal definitions
+    boardio_output: str          # Path where BoardIO XML will be written
+    clock_output: str            # Path where Clock XML will be written
+    window_vhdl_template: str    # Template for TheWindow.vhd generation
+    window_vhdl_output: str      # Output path for TheWindow.vhd
+    window_instantiation_example: str  # Path for instantiation example output
+    target_xml_templates: list     # Templates for target XML generation
+    include_clip_socket_ports: bool  # Whether to include CLIP socket ports in generated files
+    include_custom_io: bool      # Whether to include custom I/O in generated files
+    lv_target_plugin_folder: str  # Destination folder for plugin generation
+    lv_target_name: str          # Name of the LabVIEW FPGA target (e.g., "PXIe-7903")
+    lv_target_guid: str          # GUID for the LabVIEW FPGA target
+    # ----- CLIP MIGRATION SETTINGS -----
+    input_xml_path: str         # Path to source CLIP XML file
+    output_csv_path: str        # Path where CSV signals will be written
+    clip_hdl_path: str          # Path to top-level CLIP HDL file
+    clip_inst_example_path: str # Path where instantiation example will be written
+    clip_instance_path: str     # HDL hierarchy path for CLIP instance (not a file path)
+    clip_xdc_paths: list        # List of paths to XDC constraint files
+    updated_xdc_folder: str     # Folder where updated XDC files will be written
+    clip_to_window_signal_definitions: str  # Path for CLIP-to-Window signal definitions file
+
+
+def parse_bool(value, default=False):
+    """Parse string to boolean"""
+    if value is None:
+        return default
+    return value.lower() in ('true', 'yes', '1')
+
+
+def load_config(config_path=None):
+    """Load configuration from INI file"""
+    if config_path is None:
+        config_path = os.path.join(os.getcwd(), "projectsettings.ini")
+    
+    if not os.path.exists(config_path):
+        print(f"Error: Configuration file {config_path} not found.")
+        sys.exit(1)
+        
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    
+    # Default configuration
+    files = FileConfiguration(
+        # ----- General settings -----
+        target_family=None,
+        # ----- Vivado project settings -----      
+        top_level_entity=None,
+        vivado_project_name=None,
+        vivado_tools_path=None,
+        hdl_file_lists=[],
+        # ----- LVFPGA target settings -----
+        custom_signals_csv=None,
+        boardio_output=None,
+        clock_output=None,
+        window_vhdl_template=None,
+        window_vhdl_output=None,
+        window_instantiation_example=None,
+        target_xml_templates=[],
+        include_clip_socket_ports=True,
+        include_custom_io=True,
+        lv_target_plugin_folder=None,
+        lv_target_name=None,
+        lv_target_guid=None,
+        # ----- CLIP migration settings -----
+        input_xml_path=None,
+        output_csv_path=None,
+        clip_hdl_path=None,
+        clip_inst_example_path=None,
+        clip_instance_path=None,
+        clip_xdc_paths=[],
+        updated_xdc_folder=None,
+        clip_to_window_signal_definitions=None        
+    )
+    
+    # -----------------------------------------------------------------------
+    # Load General settings
+    # -----------------------------------------------------------------------
+    settings = config['GeneralSettings']
+    files.target_family = settings.get('TargetFamily')
+
+    # -----------------------------------------------------------------------
+    # Load Vivado project settings
+    # -----------------------------------------------------------------------
+    settings = config['VivadoProjectSettings']
+    files.top_level_entity = settings.get('TopLevelEntity')
+    files.vivado_project_name = settings.get('VivadoProjectName')
+    files.vivado_tools_path = settings.get('VivadoToolsPath')
+    
+    hdl_file_lists = settings.get('VivadoProjectFilesLists')
+    if hdl_file_lists:
+        for file_list in hdl_file_lists.strip().split():
+            file_list = file_list.strip()
+            if file_list:
+                abs_file_list = resolve_path(file_list)
+                files.hdl_file_lists.append(abs_file_list)
+
+    # -----------------------------------------------------------------------
+    # Load LVFPGA target settings
+    # -----------------------------------------------------------------------
+    settings = config['LVFPGATargetSettings']
+    files.custom_signals_csv = resolve_path(settings.get('LVTargetBoardIO'))
+    files.boardio_output = resolve_path(settings.get('BoardIOXML'))
+    files.clock_output = resolve_path(settings.get('ClockXML'))
+    files.window_vhdl_template = resolve_path(settings.get('WindowVhdlTemplate'))
+    files.window_vhdl_output = resolve_path(settings.get('WindowVhdlOutput'))
+    files.window_instantiation_example = resolve_path(settings.get('WindowInstantiationExample'))
+    files.lv_target_name = settings.get('LVTargetName')
+    files.lv_target_guid = settings.get('LVTargetGUID')
+    files.lv_target_plugin_folder = resolve_path(settings.get('LVTargetPluginFolder'))
+    files.include_clip_socket_ports = parse_bool(settings.get('IncludeCLIPSocket'), True)
+    files.include_custom_io = parse_bool(settings.get('IncludeLVTargetBoardIO'), True)
+       
+    # Load XML templates
+    template_files = settings.get('TargetXMLTemplates')
+    if template_files:
+        for template_file in template_files.strip().split('\n'):
+            template_file = template_file.strip()
+            if template_file:
+                abs_template_file = resolve_path(template_file)
+                files.target_xml_templates.append(abs_template_file)
+  
+    # ----------------------------------------------------------------------- 
+    # Load CLIP migration settings
+    # -----------------------------------------------------------------------
+    settings = config['CLIPMigrationSettings']
+    files.input_xml_path = resolve_path(settings['CLIPXML'])
+    files.output_csv_path = resolve_path(settings['LVTargetBoardIO'])
+    files.clip_hdl_path = resolve_path(settings['CLIPHDLTop'])
+    files.clip_inst_example_path = resolve_path(settings['CLIPInstantiationExample'])
+    files.clip_instance_path = settings['CLIPInstancePath'] # This is a HDL hierarchy path, not a file path
+    files.clip_to_window_signal_definitions = resolve_path(settings.get('CLIPtoWindowSignalDefinitions'))
+    files.updated_xdc_folder = resolve_path(settings['CLIPXDCOutFolder'])
+    
+    # Handle multiple XDC files - split by lines and strip whitespace
+    clip_xdc = settings['CLIPXDCIn']
+    for xdc_file in clip_xdc.strip().split('\n'):
+        xdc_file = xdc_file.strip()
+        if xdc_file:
+            abs_xdc_path = resolve_path(xdc_file)
+            files.clip_xdc_paths.append(abs_xdc_path)     
+
+   
+    return files
+
 
 def handle_long_path(path):
     """

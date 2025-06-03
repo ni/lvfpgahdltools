@@ -105,9 +105,11 @@ def install_lv_target_support():
     """
     # Load configuration
     config = load_config()
+
+    install_folder = os.path.join(config.lv_target_install_folder, config.lv_target_name)
     
     # Verify configuration
-    if not config.lv_target_plugin_folder or not config.lv_target_install_folder:
+    if not config.lv_target_plugin_folder or not install_folder:
         print("Error: Plugin folder or install folder not specified in configuration.")
         sys.exit(1)
     
@@ -117,7 +119,7 @@ def install_lv_target_support():
         sys.exit(1)
     
     # Check if we need admin rights (typically for Program Files)
-    needs_admin = "program files" in config.lv_target_install_folder.lower()
+    needs_admin = "program files" in install_folder.lower()
     
     # If we need admin and don't have it, relaunch with elevated privileges
     if needs_admin and not is_admin():
@@ -126,16 +128,16 @@ def install_lv_target_support():
     
     print(f"Installing LabVIEW Target '{config.lv_target_name}' files...")
     print(f"From: {config.lv_target_plugin_folder}")
-    print(f"To: {config.lv_target_install_folder}")
+    print(f"To: {install_folder}")
     
     try:
         # Delete existing installation if it exists
-        if os.path.exists(config.lv_target_install_folder):
-            print(f"Removing existing installation from {config.lv_target_install_folder}...")
+        if os.path.exists(install_folder):
+            print(f"Removing existing installation from {install_folder}...")
             
             # First try to delete individual files and folders
-            for item in os.listdir(config.lv_target_install_folder):
-                item_path = os.path.join(config.lv_target_install_folder, item)
+            for item in os.listdir(install_folder):
+                item_path = os.path.join(install_folder, item)
                 try:
                     if os.path.isfile(item_path):
                         os.unlink(item_path)
@@ -146,7 +148,7 @@ def install_lv_target_support():
                     print(f"Warning: Could not remove {item_path}: {e}")
             
         # Create install directory if it doesn't exist
-        os.makedirs(config.lv_target_install_folder, exist_ok=True)
+        os.makedirs(install_folder, exist_ok=True)
         
         # Copy files from plugin folder to install folder
         import shutil

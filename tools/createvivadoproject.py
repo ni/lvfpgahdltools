@@ -18,7 +18,6 @@ The tool supports:
 
 import os
 import shutil
-import configparser
 import argparse
 import subprocess
 from collections import defaultdict
@@ -265,7 +264,7 @@ def create_project(mode: ProjectMode, config):
     
     Args:
         mode (ProjectMode): Operation mode (NEW or UPDATE)
-        config (ConfigParser): Parsed configuration settings
+        config (FileConfiguration): Parsed configuration settings
         
     Raises:
         ValueError: If an unsupported mode is specified
@@ -277,18 +276,20 @@ def create_project(mode: ProjectMode, config):
     update_proj_path = os.path.join(current_dir, 'objects/TCL/UpdateProjectFiles.tcl')    
     
     # Get the lists of Vivado project files from the configuration
-    lists_of_files = config.get('VivadoProjectSettings', 'VivadoProjectFilesLists').split()
-    file_list = common.get_vivado_project_files(lists_of_files)
+    file_list = common.get_vivado_project_files(config.hdl_file_lists)
+    
     # Check for duplicate file names and log them
     find_and_log_duplicates(file_list)
+    
     # Copy dependency files to the gathereddeps folder
     # Returns the file list with the files from githubdeps having new locations in gathereddeps
     file_list = copy_deps_files(file_list)
 
     add_files = get_TCL_add_files_text(file_list, os.path.join(current_dir, 'TCL'))
 
-    project_name = config.get('VivadoProjectSettings', 'VivadoProjectName')
-    top_entity = config.get('VivadoProjectSettings', 'TopLevelEntity')
+    # Get settings from VivadoProjectSettings section
+    project_name = config.vivado_project_name
+    top_entity = config.top_level_entity
 
     # Replace placeholders in the template Vivado project scripts
     replace_placeholders_in_file(new_proj_template_path, new_proj_path, add_files, project_name, top_entity)
@@ -296,7 +297,7 @@ def create_project(mode: ProjectMode, config):
 
     # Run (or rerun) generate LV target support - this is needed to generate TheWindow.vhd that goes
     # into the objects directory and which gets used in the Vivado project
-    genlvtargetsupport.gen_lv_target_support();
+    genlvtargetsupport.gen_lv_target_support()
 
     vivado_project_path = os.path.join(os.getcwd(), "VivadoProject")
     if not os.path.exists(vivado_project_path):
@@ -346,7 +347,7 @@ def create_project_handler(config, overwrite=False, updatefiles=False):
     - With both flags: Error (invalid combination)
     
     Args:
-        config (ConfigParser): Parsed configuration settings
+        config (FileConfiguration): Parsed configuration settings
         overwrite (bool): Whether to overwrite an existing project
         updatefiles (bool): Whether to update files in an existing project
         
@@ -355,7 +356,8 @@ def create_project_handler(config, overwrite=False, updatefiles=False):
         FileNotFoundError: If update was requested but the project doesn't exist
         ValueError: If both overwrite and update flags were provided
     """
-    project_name = config.get('VivadoProjectSettings', 'VivadoProjectName')
+    # Get project name from VivadoProjectSettings section
+    project_name = config.vivado_project_name
 
     project_file_path = os.path.join(os.getcwd(), "VivadoProject", project_name + ".xpr")
     print(f"Project file path: {project_file_path}")
@@ -390,29 +392,21 @@ def main():
     
     This function:
     1. Sets up the command-line argument parser
-    2. Loads the configuration file
+    2. Loads the configuration using the common module
     3. Calls the project handler with appropriate parameters
     
     Command-line arguments:
     --overwrite (-o): Force creation of a new project, overwriting existing
     --updatefiles (-u): Update files in an existing project
-    
-    Configuration is read from 'projectsettings.ini' in the current directory.
-    
-    Raises:
-        FileNotFoundError: If the configuration file is missing
     """
     parser = argparse.ArgumentParser(description="Vivado Project Tools")
     parser.add_argument("--overwrite", "-o", action="store_true", help="Overwrite and create a new project")
     parser.add_argument("--updatefiles", "-u", action="store_true", help="Update files in the existing project")
     args = parser.parse_args()
 
-    config_path = os.path.join(os.getcwd(), 'projectsettings.ini')
-    # Check if the configuration file exists
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file '{config_path}' not found. Please ensure it exists in the current working directory.")
-    config = configparser.ConfigParser()
-    config.read(config_path)
+    # Use common.load_config() instead of direct ConfigParser usage
+    config = common.load_config()
+    
     create_project_handler(config, overwrite=args.overwrite, updatefiles=args.updatefiles)
 
 
