@@ -17,7 +17,7 @@ This section is used by setenv.bat, createvivadoproject.bat and launchvivado.bat
 * <b>TopLevelEntity</b> - Top level entity (same as its HDL file name) that gets set in the Vivado project
 * <b>VivadoProjectName</b> - The name of the Vivado project that is created (no spaces allowed)
 * <b>VivadoToolsPath</b> - Path to where the Vivado tools are installed.  You may point to the tools installed by NI LabVIEW FPGA Comile Tools or your own Vivado installation folder.
-* <b>VivadoProjectFilesLits</b> - Text files containing relative paths of source files that will be included in the Vivado project.  Specifying a directory path within the text file will recursively include all files within it.
+* <b>VivadoProjectFilesList</b> - Text files containing relative paths of source files that will be included in the Vivado project.  Specifying a directory path within the text file will recursively include all files within it.
 
 ### LVFPGATargetSettings
 This section is used by genlvfpgatargetsupport.bat
