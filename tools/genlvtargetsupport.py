@@ -28,10 +28,6 @@ import re                              # For regular expression operations
 # Constants
 BOARDIO_WRAPPER_NAME = "BoardIO"       # Top-level wrapper name in the BoardIO XML hierarchy
 DOCUMENT_ROOT_PREFIX = "#{{document-root}}/Stock/"  # LabVIEW FPGA document root prefix for type references
-HIERARCHY_TEXT = "AppletonWindow"      # Hierarchy name used in clock constraint generation
-DEFAULT_CLOCK_FREQ = "250M"            # Default clock frequency (250 MHz) if not specified
-DEFAULT_ACCURACY_PPM = "100"           # Default clock accuracy in parts per million
-DEFAULT_JITTER_PS = "250"              # Default clock jitter in picoseconds
 
 # Data type prototypes mapping - used to map LabVIEW data types to their FPGA representations
 # The {direction} placeholder is replaced with Input/OutputWithoutReadback based on signal direction
@@ -107,8 +103,6 @@ def create_boardio_structure():
 def create_clocklist_structure():
     """Create the initial ClockList XML structure"""
     clock_list_top = ET.Element("ClockList")
-    hierarchy = ET.SubElement(clock_list_top, "HierarchyForDerivedClockPeriodConstraints")
-    hierarchy.text = HIERARCHY_TEXT
     return clock_list_top
 
 
@@ -198,24 +192,36 @@ def generate_xml_from_csv(csv_path, boardio_output_path, clock_output_path):
                 
                 if is_clock:
                     # Process clock signal
-                    original_name = lv_name[10:].replace("\\", ".")
-                    clock = ET.SubElement(clock_list_top, "Clock", {"name": original_name})
-                    
-                    # Add clock properties
-                    freq = ET.SubElement(clock, "FreqInHertz")
-                    ET.SubElement(freq, "DefaultValue").text = DEFAULT_CLOCK_FREQ
-                    
-                    accuracy = ET.SubElement(clock, "AccuracyInPPM")
-                    ET.SubElement(accuracy, "DefaultValue").text = DEFAULT_ACCURACY_PPM
-                    
-                    jitter = ET.SubElement(clock, "JitterInPicoSeconds")
-                    ET.SubElement(jitter, "DefaultValue").text = DEFAULT_JITTER_PS
-                    
+                    # Replace the '\' in the names with '.' to create a dot-separated hierarchy.
+                    # Clocks in LV project do not support folder hierarchies so the user will simply
+                    # see the clock with a dot-separated name
+                    dot_separated_name = lv_name.replace("\\", ".")
+                    clock = ET.SubElement(clock_list_top, "Clock", {"name": dot_separated_name})
+
+                    # Add clock parameters from CSV columns
+                    duty_cycle_range = ET.SubElement(clock, "DutyCycleRangeInPercentHigh")
+                    ET.SubElement(duty_cycle_range, "Max").text = row["DutyCycleHighMax"]
+                    ET.SubElement(duty_cycle_range, "Min").text = row["DutyCycleHighMin"]
+
+                    accuracy_in_ppm = ET.SubElement(clock, "AccuracyInPPM")
+                    ET.SubElement(accuracy_in_ppm, "DefaultValue").text = row["AccuracyInPPM"]
+                                                                              
+                    jitter_in_picoseconds = ET.SubElement(clock, "JitterInPicoSeconds")
+                    ET.SubElement(jitter_in_picoseconds, "DefaultValue").text = row["JitterInPicoSeconds"]
+
+                    freq_in_hertz = ET.SubElement(clock, "FreqInHertz")
+                    ET.SubElement(freq_in_hertz, "Max").text = row["FreqMaxInHertz"]
+                    ET.SubElement(freq_in_hertz, "Min").text = row["FreqMinInHertz"]
+
                     ET.SubElement(clock, "GeneratePeriodConstraints").text = "false"
+                    ET.SubElement(clock, "DisplayInProject").text = "OnTargetCreation"             
+                    
                 else:
                     # Process IO signal
-                    original_name = lv_name[10:].replace("\\", ".")
-                    parts = original_name.split(".")
+                    # Replace the '\' in the names with '.' to create a dot-separated hierarchy
+                    # that is used to make a resource folder hierarchy in the BoardIO XML.
+                    dot_separated_name = lv_name.replace("\\", ".")
+                    parts = dot_separated_name.split(".")
                     
                     # Create resource hierarchy
                     current_parent = boardio_resources
@@ -501,7 +507,7 @@ def gen_lv_target_support():
         SystemExit: If an error occurs during generation
     """
     try:
-        # Load configuration - now using common.load_config()
+        # Load configuration
         config = common.load_config()
         
         # Clean fpga plugins folder

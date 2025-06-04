@@ -38,6 +38,7 @@ class FileConfiguration:
     lv_target_plugin_folder: str  # Destination folder for plugin generation
     lv_target_name: str          # Name of the LabVIEW FPGA target (e.g., "PXIe-7903")
     lv_target_guid: str          # GUID for the LabVIEW FPGA target
+    lv_target_install_folder: str  # Installation folder for target plugins
     # ----- CLIP MIGRATION SETTINGS -----
     input_xml_path: str         # Path to source CLIP XML file
     output_csv_path: str        # Path where CSV signals will be written
@@ -90,6 +91,7 @@ def load_config(config_path=None):
         lv_target_plugin_folder=None,
         lv_target_name=None,
         lv_target_guid=None,
+        lv_target_install_folder=None,
         # ----- CLIP migration settings -----
         input_xml_path=None,
         output_csv_path=None,
@@ -136,6 +138,7 @@ def load_config(config_path=None):
     files.lv_target_name = settings.get('LVTargetName')
     files.lv_target_guid = settings.get('LVTargetGUID')
     files.lv_target_plugin_folder = resolve_path(settings.get('LVTargetPluginFolder'))
+    files.lv_target_install_folder = settings.get('LVTargetInstallFolder')
     files.include_clip_socket_ports = parse_bool(settings.get('IncludeCLIPSocket'), True)
     files.include_custom_io = parse_bool(settings.get('IncludeLVTargetBoardIO'), True)
        

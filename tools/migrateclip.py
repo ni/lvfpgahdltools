@@ -195,7 +195,9 @@ def process_clip_xml(input_xml_path, output_csv_path):
             # Write header
             writer.writerow([
                 "LVName", "HDLName", "Direction", "SignalType",
-                "DataType", "UseInLabVIEWSingleCycleTimedLoop", "RequiredClockDomain"
+                "DataType", "UseInLabVIEWSingleCycleTimedLoop", "RequiredClockDomain",
+                "DutyCycleHighMax", "DutyCycleHighMin", "AccuracyInPPM", 
+                "JitterInPicoSeconds", "FreqMaxInHertz", "FreqMinInHertz"
             ])
             
             # Find signals
@@ -211,7 +213,7 @@ def process_clip_xml(input_xml_path, output_csv_path):
                     print("Warning: Signal without a name found, skipping")
                     continue
                 
-                # Format LabVIEW name
+                # Format LabVIEW name   
                 lv_name = "IO Socket\\" + name.replace(".", "\\")
                 
                 # Get signal properties using case-insensitive matching
@@ -223,11 +225,23 @@ def process_clip_xml(input_xml_path, output_csv_path):
                 use_in_scl = get_element_text(signal, "UseInLabVIEWSingleCycleTimedLoop")
                 clock_domain = get_element_text(signal, "RequiredClockDomain")
                 
-                # Write row to CSV
+                # Extract clock-related information
+                clock_params = extract_clock_parameters(signal)
+                duty_cycle_max = clock_params["duty_cycle_max"]
+                duty_cycle_min = clock_params["duty_cycle_min"]
+                accuracy_ppm = clock_params["accuracy_ppm"]
+                jitter_ps = clock_params["jitter_ps"]
+                freq_max = clock_params["freq_max"]
+                freq_min = clock_params["freq_min"]
+
+                # And write them to CSV as before
                 writer.writerow([
                     lv_name, hdl_name, direction, signal_type,
-                    data_type, use_in_scl, clock_domain
+                    data_type, use_in_scl, clock_domain,
+                    duty_cycle_max, duty_cycle_min, accuracy_ppm,
+                    jitter_ps, freq_max, freq_min
                 ])
+                
         print(f"Processed XML file: {input_xml_path}")
     
     except Exception as e:
@@ -445,6 +459,63 @@ def map_lv_type_to_vhdl(lv_type):
     else:
         print(f"Warning: Unrecognized LabVIEW type '{lv_type}', defaulting to std_logic_vector")
         return "std_logic_vector(0 downto 0)"
+
+
+def extract_clock_parameters(element):
+    """
+    Extract clock parameter information from signal element using case-insensitive matching
+    
+    Args:
+        element: XML Element containing clock signal information
+        
+    Returns:
+        dict: Dictionary with clock parameters (duty_cycle, accuracy, jitter, frequency)
+    """
+    if element is None:
+        return {
+            "duty_cycle_max": "",
+            "duty_cycle_min": "",
+            "accuracy_ppm": "",
+            "jitter_ps": "",
+            "freq_max": "",
+            "freq_min": ""
+        }
+    
+    # Initialize result dictionary with empty values
+    clock_params = {
+        "duty_cycle_max": "",
+        "duty_cycle_min": "",
+        "accuracy_ppm": "",
+        "jitter_ps": "",
+        "freq_max": "",
+        "freq_min": ""
+    }
+    
+    # Get accuracy and jitter (simple elements)
+    clock_params["accuracy_ppm"] = get_element_text(element, "AccuracyInPPM", "")
+    clock_params["jitter_ps"] = get_element_text(element, "JitterInPicoSeconds", "")
+    
+    # Extract duty cycle (nested in DutyCycleRange)
+    duty_cycle_range = find_case_insensitive(element, "DutyCycleRange")
+    if duty_cycle_range is not None:
+        max_elem = find_case_insensitive(duty_cycle_range, "PercentInHighMax")
+        min_elem = find_case_insensitive(duty_cycle_range, "PercentInHighMin")
+        if max_elem is not None and max_elem.text:
+            clock_params["duty_cycle_max"] = max_elem.text
+        if min_elem is not None and min_elem.text:
+            clock_params["duty_cycle_min"] = min_elem.text
+    
+    # Extract frequency range (nested in FreqInHertz)
+    freq_in_hertz = find_case_insensitive(element, "FreqInHertz")
+    if freq_in_hertz is not None:
+        max_elem = find_case_insensitive(freq_in_hertz, "Max")
+        min_elem = find_case_insensitive(freq_in_hertz, "Min")
+        if max_elem is not None and max_elem.text:
+            clock_params["freq_max"] = max_elem.text
+        if min_elem is not None and min_elem.text:
+            clock_params["freq_min"] = min_elem.text
+    
+    return clock_params
 
 
 def main():
