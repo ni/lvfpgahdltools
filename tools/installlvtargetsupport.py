@@ -5,6 +5,7 @@
 import os                              # For file and directory operations
 import sys                             # For command-line arguments and error handling
 import common                          # For shared utilities across tools
+import shutil                          # For file copying and directory removal
 
 
 def is_admin():
@@ -86,26 +87,11 @@ def install_lv_target_support():
     try:
         # Delete existing installation if it exists
         if os.path.exists(install_folder):
-            print(f"Removing existing installation from {install_folder}...")
-            
-            # First try to delete individual files and folders
-            for item in os.listdir(install_folder):
-                item_path = os.path.join(install_folder, item)
-                try:
-                    if os.path.isfile(item_path):
-                        os.unlink(item_path)
-                    elif os.path.isdir(item_path):
-                        import shutil
-                        shutil.rmtree(item_path)
-                except Exception as e:
-                    print(f"Warning: Could not remove {item_path}: {e}")
+            shutil.rmtree(install_folder, ignore_errors=True)
             
         # Create install directory if it doesn't exist
         os.makedirs(install_folder, exist_ok=True)
-        
-        # Copy files from plugin folder to install folder
-        import shutil
-        
+           
         def copy_recursively(src, dst):
             """Helper to copy files and directories recursively"""
             if os.path.isdir(src):

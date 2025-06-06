@@ -441,12 +441,8 @@ def copy_fpgafiles(hdl_file_lists, plugin_folder, target_family):
     Args:
         hdl_file_lists (list): List of HDL file list paths
         plugin_folder (str): Destination folder where the plugin will be installed
-        exclude_script_path (str): Path to script containing exclude file patterns
+        target_family (str): Target family identifier (e.g., "FlexRIO")
     """
-    if not hdl_file_lists:
-        print("No HDL file lists specified - skipping HDL file installation")
-        return
-        
     # Get all HDL files from file lists
     print(f"Reading HDL file lists from: {hdl_file_lists}")
     file_list = common.get_vivado_project_files(hdl_file_lists)
@@ -483,10 +479,32 @@ def copy_fpgafiles(hdl_file_lists, plugin_folder, target_family):
             target_path = os.path.join(dest_deps_folder, os.path.basename(file))
             if os.path.exists(target_path):
                 os.chmod(target_path, 0o777)  # Make the file writable
-            try:
-                shutil.copy2(file, target_path)
-            except Exception as e:
-                raise IOError(f"Error copying file '{file}' to '{target_path}': {e}")
+            shutil.copy2(file, target_path)
+
+def copy_otherfiles(plugin_folder, target_family):            
+    # There are some other files that need to be added to the plugin folder in order to make things work
+    if target_family.lower() == "flexrio":
+        common_plugin_src = common.resolve_path("../common/lvFpgaTarget/targetpluginmisc")
+    else:
+        raise ValueError(f"Unsupported target family: {target_family}.")
+    
+    print(f"Copying common plugin files from {common_plugin_src} to {plugin_folder}")
+    
+    for root, dirs, files in os.walk(common_plugin_src):
+        # Calculate relative path to maintain directory structure
+        rel_path = os.path.relpath(root, common_plugin_src)
+        # Create corresponding directory in destination
+        dest_dir = os.path.join(plugin_folder, rel_path) if rel_path != '.' else plugin_folder
+        os.makedirs(dest_dir, exist_ok=True)          
+        # Copy each file
+        for file in files:
+            src_file = os.path.join(root, file)
+            dst_file = os.path.join(dest_dir, file)
+            # Make destination writable if it exists
+            if os.path.exists(dst_file):
+                os.chmod(dst_file, 0o777)
+            shutil.copy2(src_file, dst_file)
+
 
 def gen_lv_target_support():
     """
@@ -513,11 +531,13 @@ def gen_lv_target_support():
         # Clean fpga plugins folder
         shutil.rmtree(config.lv_target_plugin_folder, ignore_errors=True)
         
-        generate_xml_from_csv(
-            config.custom_signals_csv, 
-            config.boardio_output, 
-            config.clock_output
-        )
+        # Only generate custom IO files if the plugin is configured to include them
+        if config.include_custom_io:
+            generate_xml_from_csv(
+                config.custom_signals_csv, 
+                config.boardio_output, 
+                config.clock_output
+            )
         
         generate_vhdl_from_csv(
             config.custom_signals_csv, 
@@ -545,6 +565,11 @@ def gen_lv_target_support():
         
         copy_fpgafiles(
             config.hdl_file_lists,
+            config.lv_target_plugin_folder,
+            config.target_family
+        )
+
+        copy_otherfiles(
             config.lv_target_plugin_folder,
             config.target_family
         )
