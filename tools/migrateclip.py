@@ -149,7 +149,7 @@ def extract_data_type(element):
     return "Unknown"
 
 
-def process_clip_xml(input_xml_path, output_csv_path):
+def generate_board_io_csv_from_clip_xml(input_xml_path, output_csv_path):
     """
     Process CLIP XML and generate CSV with signal information.
     
@@ -528,7 +528,7 @@ def main():
         long_input_xml_path = common.handle_long_path(config.input_xml_path)
         
         # Process XML
-        process_clip_xml(
+        generate_board_io_csv_from_clip_xml(
             long_input_xml_path, 
             config.output_csv_path
         )

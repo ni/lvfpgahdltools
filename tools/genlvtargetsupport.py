@@ -189,14 +189,17 @@ def generate_xml_from_csv(csv_path, boardio_output_path, clock_output_path):
                 
                 # Handle clock signals
                 is_clock = signal_type.lower() == "clock" and clip_direction == "FromCLIP"
+
+                # Replace the '\' in the names with '.' to create a dot-separated hierarchy
+                # that is used to make a resource folder hierarchy in the BoardIO XML.  The 
+                # dot-separated name is also use as the name in the LV FPGA project because
+                # LV FPGA does not allow '\' in the names.
+                dot_separated_name = lv_name.replace("\\", ".")               
                 
                 if is_clock:
                     # Process clock signal
-                    # Replace the '\' in the names with '.' to create a dot-separated hierarchy.
-                    # Clocks in LV project do not support folder hierarchies so the user will simply
-                    # see the clock with a dot-separated name
-                    dot_separated_name = lv_name.replace("\\", ".")
                     clock = ET.SubElement(clock_list_top, "Clock", {"name": dot_separated_name})
+                    ET.SubElement(clock, "VHDLName").text = hdl_name
 
                     # Add clock parameters from CSV columns
                     duty_cycle_range = ET.SubElement(clock, "DutyCycleRangeInPercentHigh")
@@ -218,18 +221,15 @@ def generate_xml_from_csv(csv_path, boardio_output_path, clock_output_path):
                     
                 else:
                     # Process IO signal
-                    # Replace the '\' in the names with '.' to create a dot-separated hierarchy
-                    # that is used to make a resource folder hierarchy in the BoardIO XML.
-                    dot_separated_name = lv_name.replace("\\", ".")
                     parts = dot_separated_name.split(".")
                     
                     # Create resource hierarchy
                     current_parent = boardio_resources
                     for part in parts[:-1]:
                         current_parent = get_or_create_resource_list(current_parent, part)
-                    
+
                     # Create IO resource
-                    io_resource = ET.SubElement(current_parent, "IOResource", {"name": lv_name})
+                    io_resource = ET.SubElement(current_parent, "IOResource", {"name": dot_separated_name})
                     ET.SubElement(io_resource, "VHDLName").text = hdl_name
                     
                     if required_clock_domain:
@@ -272,9 +272,9 @@ def generate_xml_from_csv(csv_path, boardio_output_path, clock_output_path):
         sys.exit(1)
 
 
-def generate_vhdl_from_csv(csv_path, template_path, output_path, include_clip_socket, include_custom_io):
+def generate_window_vhdl_from_csv(csv_path, template_path, output_path, include_clip_socket, include_custom_io):
     """
-    Generate VHDL from CSV using a Mako template
+    Generate Window VHDL from CSV using a Mako template
     
     Creates the Window VHDL file that serves as the interface between LabVIEW FPGA
     and custom hardware. Uses a template-based approach with Mako templates.
@@ -301,7 +301,9 @@ def generate_vhdl_from_csv(csv_path, template_path, output_path, include_clip_so
         with open(csv_path, 'r', newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             for row in reader:
-                if row["SignalType"].lower() == "clock":
+                if row["SignalType"].lower() == "clock" and row["Direction"] == "output":
+                    # Clocks going to the CLIP are not driven from TheWindow.  They are connected
+                    # manually when the CLIP HDL is instantiated in the top level HDL design
                     continue
                     
                 signals.append({
@@ -401,9 +403,9 @@ def generate_target_xml(template_paths, output_folder, include_clip_socket, incl
         sys.exit(1)
 
 
-def generate_vhdl_instantiation_example(vhdl_path, output_path):
+def generate_window_vhdl_instantiation_example(vhdl_path, output_path):
     """
-    Generate VHDL entity instantiation example from VHDL file
+    Generate Window VHDL entity instantiation example from VHDL file
     
     Creates a VHDL file that demonstrates how to instantiate TheWindow entity
     in a larger design. This is useful for integrating the generated VHDL
@@ -539,7 +541,7 @@ def gen_lv_target_support():
                 config.clock_output
             )
         
-        generate_vhdl_from_csv(
+        generate_window_vhdl_from_csv(
             config.custom_signals_csv, 
             config.window_vhdl_template, 
             config.window_vhdl_output,
@@ -547,7 +549,7 @@ def gen_lv_target_support():
             config.include_custom_io
         )
 
-        generate_vhdl_instantiation_example(
+        generate_window_vhdl_instantiation_example(
             config.window_vhdl_output,
             config.window_instantiation_example
         )
