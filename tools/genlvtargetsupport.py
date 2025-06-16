@@ -32,16 +32,16 @@ DOCUMENT_ROOT_PREFIX = "#{{document-root}}/Stock/"  # LabVIEW FPGA document root
 # Data type prototypes mapping - used to map LabVIEW data types to their FPGA representations
 # The {direction} placeholder is replaced with Input/OutputWithoutReadback based on signal direction
 DATA_TYPE_PROTOTYPES = {
-    "FXP": DOCUMENT_ROOT_PREFIX + "FXPDigital{direction}",      # Fixed-point numeric type
-    "Boolean": DOCUMENT_ROOT_PREFIX + "boolDigital{direction}",  # Single-bit boolean type
-    "U8": DOCUMENT_ROOT_PREFIX + "u8Digital{direction}",         # Unsigned 8-bit integer
-    "U16": DOCUMENT_ROOT_PREFIX + "u16Digital{direction}",       # Unsigned 16-bit integer
-    "U32": DOCUMENT_ROOT_PREFIX + "u32Digital{direction}",       # Unsigned 32-bit integer
-    "U64": DOCUMENT_ROOT_PREFIX + "u64Digital{direction}",       # Unsigned 64-bit integer
-    "I8": DOCUMENT_ROOT_PREFIX + "i8Digital{direction}",         # Signed 8-bit integer
-    "I16": DOCUMENT_ROOT_PREFIX + "i16Digital{direction}",       # Signed 16-bit integer
-    "I32": DOCUMENT_ROOT_PREFIX + "i32Digital{direction}",       # Signed 32-bit integer
-    "I64": DOCUMENT_ROOT_PREFIX + "i64Digital{direction}",       # Signed 64-bit integer
+    "FXP": DOCUMENT_ROOT_PREFIX + "FXPDigital{direction}{output_readback}{zero_sync_regs}",      # Fixed-point numeric type
+    "Boolean": DOCUMENT_ROOT_PREFIX + "boolDigital{direction}{output_readback}{zero_sync_regs}",  # Single-bit boolean type
+    "U8": DOCUMENT_ROOT_PREFIX + "u8Digital{direction}{output_readback}{zero_sync_regs}",         # Unsigned 8-bit integer
+    "U16": DOCUMENT_ROOT_PREFIX + "u16Digital{direction}{output_readback}{zero_sync_regs}",       # Unsigned 16-bit integer
+    "U32": DOCUMENT_ROOT_PREFIX + "u32Digital{direction}{output_readback}{zero_sync_regs}",       # Unsigned 32-bit integer
+    "U64": DOCUMENT_ROOT_PREFIX + "u64Digital{direction}{output_readback}{zero_sync_regs}",       # Unsigned 64-bit integer
+    "I8": DOCUMENT_ROOT_PREFIX + "i8Digital{direction}{output_readback}{zero_sync_regs}",         # Signed 8-bit integer
+    "I16": DOCUMENT_ROOT_PREFIX + "i16Digital{direction}{output_readback}{zero_sync_regs}",       # Signed 16-bit integer
+    "I32": DOCUMENT_ROOT_PREFIX + "i32Digital{direction}{output_readback}{zero_sync_regs}",       # Signed 32-bit integer
+    "I64": DOCUMENT_ROOT_PREFIX + "i64Digital{direction}{output_readback}{zero_sync_regs}",       # Signed 64-bit integer
 }
 
 
@@ -182,21 +182,21 @@ def generate_xml_from_csv(csv_path, boardio_output_path, clock_output_path):
                 signal_type = row["SignalType"]
                 data_type = row["DataType"]
                 use_in_scl = row["UseInLabVIEWSingleCycleTimedLoop"]
+                zero_sync_regs = row["ZeroSyncRegs"]
+                output_readback = row["OutputReadback"]
                 required_clock_domain = row["RequiredClockDomain"]
                 
-                # Convert direction format
-                clip_direction = {"output": "ToCLIP", "input": "FromCLIP"}.get(direction, direction)
-                
-                # Handle clock signals
-                is_clock = signal_type.lower() == "clock" and clip_direction == "FromCLIP"
-
                 # Replace the '\' in the names with '.' to create a dot-separated hierarchy
                 # that is used to make a resource folder hierarchy in the BoardIO XML.  The 
                 # dot-separated name is also use as the name in the LV FPGA project because
                 # LV FPGA does not allow '\' in the names.
                 dot_separated_name = lv_name.replace("\\", ".")               
                 
-                if is_clock:
+                if signal_type.lower() == "clock" and direction.lower() == "output":
+                    # Skip clocks that are outputs, they do not get exposed in the LV FPGA project
+                    continue  
+
+                elif signal_type.lower() == "clock" and direction.lower() == "input":
                     # Process clock signal
                     clock = ET.SubElement(clock_list_top, "Clock", {"name": dot_separated_name})
                     ET.SubElement(clock, "VHDLName").text = hdl_name
@@ -238,17 +238,33 @@ def generate_xml_from_csv(csv_path, boardio_output_path, clock_output_path):
                     if use_in_scl:
                         ET.SubElement(io_resource, "UseInSingleCycleTimedLoop").text = use_in_scl
                     
-                    # Set direction and prototype
                     io_direction = {
-                        "ToCLIP": "OutputWithoutReadback",
-                        "FromCLIP": "Input"
-                    }.get(clip_direction, "Unknown")
-                    
+                        "output": "Output",
+                        "input": "Input"
+                    }.get(direction.lower(), "Unknown")
+
+                    io_zero_sync_regs = {
+                        "true": "ZeroDefaultSyncRegisters",
+                        "false": ""
+                    }.get(zero_sync_regs.lower(), "Unknown")
+
+                    if io_direction == "Output":
+                        io_output_readback = {
+                            "true": "WithReadback",
+                            "false": "WithoutReadback"
+                        }.get(output_readback.lower(), "Unknown")
+                    else:
+                        io_output_readback = ""
+
                     # Handle data type and prototype
                     data_type_name = data_type.split('(')[0] if '(' in data_type else data_type
                     
                     if data_type_name in DATA_TYPE_PROTOTYPES:
-                        prototype = DATA_TYPE_PROTOTYPES[data_type_name].format(direction=io_direction)
+                        prototype = DATA_TYPE_PROTOTYPES[data_type_name].format(
+                            direction=io_direction,
+                            zero_sync_regs=io_zero_sync_regs,
+                            output_readback=io_output_readback
+                            )
                         io_resource.set("prototype", prototype)
                         
                         # Handle FXP attributes

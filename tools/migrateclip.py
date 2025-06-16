@@ -196,6 +196,7 @@ def generate_board_io_csv_from_clip_xml(input_xml_path, output_csv_path):
             writer.writerow([
                 "LVName", "HDLName", "Direction", "SignalType",
                 "DataType", "UseInLabVIEWSingleCycleTimedLoop", "RequiredClockDomain",
+                "ZeroSyncRegs", "OutputReadback",
                 "DutyCycleHighMax", "DutyCycleHighMin", "AccuracyInPPM", 
                 "JitterInPicoSeconds", "FreqMaxInHertz", "FreqMinInHertz"
             ])
@@ -224,7 +225,17 @@ def generate_board_io_csv_from_clip_xml(input_xml_path, output_csv_path):
                 data_type = extract_data_type(signal.find("DataType") or find_case_insensitive(signal, "DataType"))
                 use_in_scl = get_element_text(signal, "UseInLabVIEWSingleCycleTimedLoop")
                 clock_domain = get_element_text(signal, "RequiredClockDomain")
-                
+
+                if direction == "input" or use_in_scl == "Required":
+                    zero_sync_regs = "TRUE"
+                else:
+                    zero_sync_regs = "FALSE"
+
+                if direction == "output":
+                    output_readback = "FALSE"
+                else:
+                    output_readback = ""
+                               
                 # Extract clock-related information
                 clock_params = extract_clock_parameters(signal)
                 duty_cycle_max = clock_params["duty_cycle_max"]
@@ -238,6 +249,7 @@ def generate_board_io_csv_from_clip_xml(input_xml_path, output_csv_path):
                 writer.writerow([
                     lv_name, hdl_name, direction, signal_type,
                     data_type, use_in_scl, clock_domain,
+                    zero_sync_regs, output_readback,
                     duty_cycle_max, duty_cycle_min, accuracy_ppm,
                     jitter_ps, freq_max, freq_min
                 ])
