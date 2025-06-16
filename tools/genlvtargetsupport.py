@@ -401,6 +401,7 @@ def generate_target_xml(template_paths, output_folder, include_clip_socket, incl
                     include_custom_io=include_custom_io,
                     custom_boardio=boardio_filename,
                     custom_clock=clock_filename,
+                    custom_target=True,
                     lv_target_name=lv_target_name,
                     lv_target_guid=lv_target_guid
                 )
