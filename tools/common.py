@@ -408,7 +408,7 @@ def get_vivado_project_files(lists_of_files):
                             for root, _, files in os.walk(line):
                                 for file in files:
                                     # Filter for relevant file types
-                                    if file.endswith(('.vhd', '.v', '.sv', '.xdc', '.edf', '.dcp', '.xci')):
+                                    if file.endswith(('.vhd', '.v', '.sv', '.xdc', '.edf', '.edif', '.dcp', '.xci')):
                                         file_path = os.path.join(root, file)
                                         file_list.append(fix_file_slashes(file_path))   
                         else:
