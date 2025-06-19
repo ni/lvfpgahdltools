@@ -20,6 +20,7 @@ class FileConfiguration:
     """
     # ----- GENERAL SETTINGS -----
     target_family: str           # Target family (e.g., "FlexRIO")
+    base_target: str             # Base target name (e.g., "PXIe-7903")
     # ----- VIVADO PROJECT SETTINGS -----
     top_level_entity: str        # Top-level entity name for Vivado project
     vivado_project_name: str     # Name of the Vivado project (no spaces allowed)
@@ -73,6 +74,7 @@ def load_config(config_path=None):
     files = FileConfiguration(
         # ----- General settings -----
         target_family=None,
+        base_target=None,
         # ----- Vivado project settings -----      
         top_level_entity=None,
         vivado_project_name=None,
@@ -108,6 +110,7 @@ def load_config(config_path=None):
     # -----------------------------------------------------------------------
     settings = config['GeneralSettings']
     files.target_family = settings.get('TargetFamily')
+    files.base_target = settings.get('BaseTarget')
 
     # -----------------------------------------------------------------------
     # Load Vivado project settings

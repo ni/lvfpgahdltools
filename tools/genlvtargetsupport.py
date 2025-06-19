@@ -448,7 +448,7 @@ def generate_window_vhdl_instantiation_example(vhdl_path, output_path):
         sys.exit(1)
 
 
-def copy_fpgafiles(hdl_file_lists, plugin_folder, target_family):
+def copy_fpgafiles(hdl_file_lists, plugin_folder, target_family, base_target):
     """
     Copy HDL files to the FPGA files destination folder
     
@@ -495,7 +495,21 @@ def copy_fpgafiles(hdl_file_lists, plugin_folder, target_family):
         if not should_exclude:     
             file = os.path.abspath(file)
             file = common.handle_long_path(file)
-            target_path = os.path.join(dest_deps_folder, os.path.basename(file))
+            
+            # Get the base filename
+            base_filename = os.path.basename(file)
+            
+            # Check if the file is constraints.xdc and rename it if needed
+            # Only on the 7903 target.  As other targets are added they may also opt in to this
+            # customization.  We will likely find a better way to enumerate targets that need this
+            # in the future.
+            if base_target.lower() == "pxie-7903" and base_filename == "constraints.xdc":
+                target_filename = "constraints.xdc_template"
+            else:
+                target_filename = base_filename
+                        
+            target_path = os.path.join(dest_deps_folder, target_filename)
+            
             if os.path.exists(target_path):
                 os.chmod(target_path, 0o777)  # Make the file writable
             shutil.copy2(file, target_path)
@@ -585,7 +599,8 @@ def gen_lv_target_support():
         copy_fpgafiles(
             config.hdl_file_lists,
             config.lv_target_plugin_folder,
-            config.target_family
+            config.target_family,
+            config.base_target
         )
 
         copy_otherfiles(
