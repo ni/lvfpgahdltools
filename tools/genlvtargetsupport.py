@@ -514,6 +514,7 @@ def copy_fpgafiles(hdl_file_lists, plugin_folder, target_family, base_target):
                 os.chmod(target_path, 0o777)  # Make the file writable
             shutil.copy2(file, target_path)
 
+
 def copy_otherfiles(plugin_folder, target_family):            
     # There are some other files that need to be added to the plugin folder in order to make things work
     if target_family.lower() == "flexrio":
